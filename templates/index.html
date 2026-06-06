@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstaDrop | Premium Instagram Downloader</title>
+    <meta name="description" content="A premium self-hosted utility to download Instagram posts, videos, and carousels locally.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Background Decorators -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
+                <h1 id="app-title">InstaDrop</h1>
+            </div>
+            <p class="tagline">Download posts, videos, and slide carousels locally.</p>
+        </header>
+
+        <!-- Main Content Grid -->
+        <main class="main-content">
+            <!-- Downloader Panel -->
+            <section class="card control-card">
+                <h2 class="section-title">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    New Download
+                </h2>
+                
+                <form id="download-form" class="download-form">
+                    <div class="input-group">
+                        <label for="post-url">Instagram Post / Reel URL</label>
+                        <div class="input-wrapper">
+                            <input type="url" id="post-url" placeholder="https://www.instagram.com/p/..." required>
+                        </div>
+                    </div>
+
+                    <!-- Instagram Session Connection -->
+                    <div class="session-status-card" id="session-status-container">
+                        <div class="session-status-info">
+                            <div class="status-indicator-dot" id="status-indicator"></div>
+                            <span id="session-status-text">Checking Instagram Connection...</span>
+                        </div>
+                        <p class="session-desc" id="session-desc-text">We need an active Instagram session to bypass blocks and retrieve media posts.</p>
+                        <div class="session-actions">
+                            <button type="button" id="connect-btn" class="btn btn-secondary btn-connect" style="display: none;">
+                                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <span>Connect Instagram Account</span>
+                            </button>
+                            <button type="button" id="disconnect-btn" class="btn btn-danger btn-disconnect" style="display: none;">
+                                <span>Disconnect Account</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Buttons Row -->
+                    <div class="action-buttons">
+                        <button type="submit" id="submit-btn" class="btn btn-primary">
+                            <span>Download Post</span>
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                        <button type="button" id="open-downloads-btn" class="btn btn-secondary">
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>Open Downloads Folder</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Loading & Status Panel -->
+            <section id="status-card" class="card status-card" style="display: none;">
+                <div class="status-header">
+                    <h3 id="status-title">Processing Download...</h3>
+                    <div id="status-spinner" class="spinner"></div>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar-fill"></div>
+                </div>
+                <p id="status-message">Connecting to Instagram and fetching post data. Please wait...</p>
+                
+                <div id="download-result-preview" class="download-result-preview" style="display: none;">
+                    <div class="preview-info">
+                        <div class="badge success-badge">Success</div>
+                        <span id="result-username" class="result-username">@instagram_user</span>
+                    </div>
+                    <p id="result-caption" class="result-caption">Post caption...</p>
+                    <div id="result-media-count" class="result-media-count">Downloaded 0 files.</div>
+                </div>
+            </section>
+
+            <!-- Gallery / History Section -->
+            <section class="history-section">
+                <div class="history-header">
+                    <h2 class="section-title">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        Downloaded Posts Library
+                    </h2>
+                    <span id="history-count" class="history-count">0 items</span>
+                </div>
+
+                <div id="history-grid" class="history-grid">
+                    <!-- History Cards will be dynamically injected here -->
+                    <div class="no-history-state" id="no-history">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                        </svg>
+                        <p>No downloads yet. Enter a post URL above to get started!</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>InstaDrop Downloader • Locally hosted Python Application</p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
