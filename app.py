@@ -29,6 +29,7 @@ os.makedirs("templates", exist_ok=True)
 # Request Models
 class DownloadRequest(BaseModel):
     url: str
+    suffix: Optional[str] = None
 
 class OpenFolderRequest(BaseModel):
     shortcode: Optional[str] = None
@@ -69,7 +70,7 @@ async def api_auth_logout():
 @app.post("/api/download")
 async def api_download(req: DownloadRequest):
     """Triggers the Instagram post download."""
-    logger.info(f"Received download request for URL: {req.url}")
+    logger.info(f"Received download request for URL: {req.url} with suffix: {req.suffix}")
     if not is_authenticated():
         raise HTTPException(
             status_code=400, 
@@ -78,7 +79,7 @@ async def api_download(req: DownloadRequest):
         
     try:
         # Perform download using the async playwright downloader function
-        metadata = await download_instagram_post(post_url=req.url)
+        metadata = await download_instagram_post(post_url=req.url, suffix=req.suffix)
         return {"success": True, "data": metadata}
     except ValueError as ve:
         logger.warning(f"Validation error: {ve}")

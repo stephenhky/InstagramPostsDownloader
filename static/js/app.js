@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // DOM Elements
     const downloadForm = document.getElementById("download-form");
     const postUrlInput = document.getElementById("post-url");
+    const filenameSuffixInput = document.getElementById("filename-suffix");
     const submitBtn = document.getElementById("submit-btn");
     const openDownloadsBtn = document.getElementById("open-downloads-btn");
     
@@ -177,6 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const url = postUrlInput.value.trim();
+        const suffix = filenameSuffixInput.value.trim();
         
         // Show status card
         statusCard.style.display = "block";
@@ -198,7 +200,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const response = await fetch("/api/download", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: url })
+                body: JSON.stringify({ 
+                    url: url,
+                    suffix: suffix || null
+                })
             });
             
             const result = await response.json();
@@ -216,8 +221,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 resultMediaCount.textContent = `Downloaded ${result.data.media_files.length} media file(s).`;
                 resultPreview.style.display = "flex";
                 
-                // Reset form URL input
+                // Reset form URL and suffix inputs
                 postUrlInput.value = "";
+                filenameSuffixInput.value = "";
                 
                 // Reload history
                 loadHistory();

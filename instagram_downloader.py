@@ -116,7 +116,7 @@ def download_file(url: str, filepath: str):
         for chunk in r.iter_content(chunk_size=8192):
             f.write(chunk)
 
-async def download_instagram_post(post_url: str) -> dict:
+async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
     """
     Downloads an Instagram post using Playwright headless browser.
     Extracts media sources, handles carousels, downloads CDN assets, and writes metadata.
@@ -153,8 +153,16 @@ async def download_instagram_post(post_url: str) -> dict:
         # Go to post page
         await page.goto(post_url, wait_until="load")
         
-        # Wait to let dynamic content render
-        await page.wait_for_timeout(4000) 
+        # Wait up to 15 seconds for any key page elements to render (terminal states)
+        try:
+            await page.wait_for_selector(
+                "article img, video, input[name='username'], text='This Account is Private', text='This account is private', text='Sorry, this page'", 
+                timeout=15000
+            )
+        except Exception:
+            logger.warning("Timeout waiting for key post elements to load.")
+            
+        await page.wait_for_timeout(1500) # Let page fully settle
         
         # 1. Detect if redirect or modal shows a login wall
         login_form_visible = False
@@ -167,6 +175,7 @@ async def download_instagram_post(post_url: str) -> dict:
 
         if "accounts/login" in page.url or login_form_visible:
             await browser.close()
+            # Session expired, delete it
             logout_session()
             raise RuntimeError("Your Instagram session is invalid or has expired. Please disconnect and reconnect your account.")
 
@@ -184,10 +193,20 @@ async def download_instagram_post(post_url: str) -> dict:
             await browser.close()
             raise RuntimeError("This account is private. You must follow this account on your connected Instagram profile to download its media.")
 
+        # Locate the main post article to avoid grabbing recommended/suggested posts below
+        main_article = page.locator("article").first
+        if not await main_article.is_visible():
+            logger.warning("Main <article> container not visible. Using page body/main fallbacks.")
+            main_loc = page.locator("main").first
+            if await main_loc.is_visible():
+                main_article = main_loc
+            else:
+                main_article = page.locator("body")
+
         # Scrape Owner Username
         owner_username = "instagram_user"
         try:
-            username_loc = page.locator("header a[href^='/']").first
+            username_loc = main_article.locator("header a[href^='/']").first
             if await username_loc.is_visible():
                 owner_username = (await username_loc.text_content()).strip()
         except Exception as e:
@@ -196,7 +215,7 @@ async def download_instagram_post(post_url: str) -> dict:
         # Scrape Caption
         caption = ""
         try:
-            h1_loc = page.locator("h1").first
+            h1_loc = main_article.locator("h1").first
             if await h1_loc.is_visible():
                 caption = (await h1_loc.text_content()).strip()
         except Exception as e:
@@ -208,8 +227,8 @@ async def download_instagram_post(post_url: str) -> dict:
         
         # Loop to process slides in carousels
         for slide_idx in range(12): # Max 12 slides
-            # Capture visible image URLs (broad locator, filter small elements)
-            images = await page.locator("img").all()
+            # Capture visible image URLs inside the main article (excluding avatars/icons)
+            images = await main_article.locator("img").all()
             for img in images:
                 try:
                     alt = (await img.get_attribute("alt") or "").lower()
@@ -228,8 +247,8 @@ async def download_instagram_post(post_url: str) -> dict:
                 except Exception:
                     pass
 
-            # Capture visible video URLs
-            videos = await page.locator("video").all()
+            # Capture visible video URLs inside the main article
+            videos = await main_article.locator("video").all()
             for vid in videos:
                 try:
                     is_video = True
@@ -240,8 +259,8 @@ async def download_instagram_post(post_url: str) -> dict:
                 except Exception:
                     pass
             
-            # Click "Next" button if present
-            next_btn = page.locator("button[aria-label='Next'], button:has(div > svg[aria-label='Next'])").first
+            # Click "Next" button if present inside the main article
+            next_btn = main_article.locator("button[aria-label='Next'], button:has(div > svg[aria-label='Next'])").first
             if await next_btn.is_visible():
                 try:
                     # Use JS evaluation click to bypass any popups/dialogs blocking clicks
@@ -255,9 +274,11 @@ async def download_instagram_post(post_url: str) -> dict:
         # Merge intercepted videos (blob fallbacks)
         if is_video or len(intercepted_videos) > 0:
             is_video = True
-            for video_url in intercepted_videos:
-                if video_url not in media_urls:
-                    media_urls.append(video_url)
+            # Only use network interception if no direct CDN links were found in the DOM
+            if not any("scontent" in url for url in media_urls):
+                if intercepted_videos:
+                    # Take only the first video (the autoloaded main post video)
+                    media_urls.append(intercepted_videos[0])
 
         # Remove blob URLs if any crept into media_urls
         media_urls = [url for url in media_urls if not url.startswith("blob:")]
@@ -272,11 +293,32 @@ async def download_instagram_post(post_url: str) -> dict:
         
         logger.info(f"Found {len(media_urls)} media URLs. Starting download...")
         
+        import urllib.parse
         downloaded_files = []
         for idx, url in enumerate(media_urls):
-            # Determine extension
-            ext = ".mp4" if (".mp4" in url or "video" in url.lower() or is_video and len(media_urls) == 1) else ".jpg"
-            filename = f"{shortcode}_{idx}{ext}"
+            # Parse URL to get the original CDN filename
+            parsed_url = urllib.parse.urlparse(url)
+            original_filename = os.path.basename(parsed_url.path)
+            
+            # Separate base and extension, fallback if empty
+            base, ext = os.path.splitext(original_filename)
+            if not ext:
+                ext = ".mp4" if (".mp4" in url or "video" in url.lower() or is_video and len(media_urls) == 1) else ".jpg"
+            
+            # Extract only the numerical digits to compose the base filename
+            digits = re.findall(r'\d+', base)
+            if digits:
+                base = "_".join(digits)
+            else:
+                base = f"{shortcode}_{idx}"
+                
+            # Append custom suffix if provided
+            if suffix:
+                # Sanitize suffix (remove unsafe filename characters)
+                clean_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix)
+                base = f"{base}{clean_suffix}"
+                
+            filename = f"{base}{ext}"
             filepath = os.path.join(download_dir, filename)
             
             try:
