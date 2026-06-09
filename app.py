@@ -1,11 +1,11 @@
 import os
 import subprocess
 import logging
-from typing import Optional
+from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from instagram_downloader import (
     download_instagram_post, 
     is_authenticated, 
@@ -31,6 +31,22 @@ class DownloadRequest(BaseModel):
     url: str
     suffix: Optional[str] = None
 
+class BatchDownloadItem(BaseModel):
+    url: str
+    suffix: Optional[str] = None
+
+class BatchDownloadRequest(BaseModel):
+    items: List[BatchDownloadItem]
+
+    @field_validator("items")
+    @classmethod
+    def validate_items_count(cls, v):
+        if len(v) == 0:
+            raise ValueError("At least one post URL is required.")
+        if len(v) > 9:
+            raise ValueError("Maximum of 9 posts can be downloaded at once.")
+        return v
+
 class OpenFolderRequest(BaseModel):
     shortcode: Optional[str] = None
 
@@ -45,6 +61,14 @@ async def read_root():
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return HTMLResponse("<h1>Frontend template not found.</h1>", status_code=404)
+
+@app.get("/batch")
+async def read_batch():
+    """Serves the batch download page."""
+    batch_path = "templates/batch.html"
+    if os.path.exists(batch_path):
+        return FileResponse(batch_path)
+    return HTMLResponse("<h1>Batch template not found.</h1>", status_code=404)
 
 @app.get("/api/auth/status")
 async def api_auth_status():
@@ -87,6 +111,39 @@ async def api_download(req: DownloadRequest):
     except Exception as e:
         logger.error(f"Download processing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/batch-download")
+async def api_batch_download(req: BatchDownloadRequest):
+    """Downloads up to 9 Instagram posts sequentially."""
+    logger.info(f"Received batch download request for {len(req.items)} post(s).")
+    if not is_authenticated():
+        raise HTTPException(
+            status_code=400,
+            detail="Instagram account is not connected. Please click 'Connect Instagram Account' first."
+        )
+
+    results = []
+    for idx, item in enumerate(req.items):
+        logger.info(f"Batch item {idx + 1}/{len(req.items)}: {item.url}")
+        try:
+            metadata = await download_instagram_post(post_url=item.url, suffix=item.suffix)
+            results.append({"index": idx, "success": True, "data": metadata, "url": item.url})
+        except ValueError as ve:
+            logger.warning(f"Batch item {idx + 1} validation error: {ve}")
+            results.append({"index": idx, "success": False, "error": str(ve), "url": item.url})
+        except Exception as e:
+            logger.error(f"Batch item {idx + 1} download failed: {e}")
+            results.append({"index": idx, "success": False, "error": str(e), "url": item.url})
+
+    succeeded = sum(1 for r in results if r["success"])
+    failed = len(results) - succeeded
+    return {
+        "success": failed == 0,
+        "total": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "results": results
+    }
 
 @app.get("/api/history")
 async def api_history():
