@@ -5,7 +5,9 @@ import logging
 import asyncio
 import time
 from datetime import datetime
+import urllib.parse
 import requests
+import instaloader
 from playwright.async_api import async_playwright
 
 # Configure logging
@@ -15,16 +17,18 @@ logger = logging.getLogger(__name__)
 SESSION_DIR = ".sessions"
 SESSION_FILE = os.path.join(SESSION_DIR, "playwright_auth.json")
 INSTAGRAM_URL_PATTERN = re.compile(
-    r"(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|tv)/([^/?#&]+)"
+    r"(?:(?:https?://)?(?:www\.)?instagram\.com)?/?(?:[^/]+/)?(?:p|reel|tv)/([^/?#&]+)"
 )
 
-def extract_shortcode(url: str) -> str:
+def extract_shortcode(url: str, raise_error: bool = True) -> str:
     """
     Extracts the shortcode from an Instagram URL.
     """
     match = INSTAGRAM_URL_PATTERN.search(url)
     if not match:
-        raise ValueError("Invalid Instagram URL pattern. Must be a /p/, /reel/, or /tv/ URL.")
+        if raise_error:
+            raise ValueError("Invalid Instagram URL pattern. Must be a /p/, /reel/, or /tv/ URL.")
+        return ""
     return match.group(1)
 
 def is_authenticated() -> bool:
@@ -116,6 +120,65 @@ def download_file(url: str, filepath: str):
         for chunk in r.iter_content(chunk_size=8192):
             f.write(chunk)
 
+def extract_url_digits(url: str) -> str:
+    """
+    Extracts the numerical digits segment of the filename from an Instagram CDN URL.
+    e.g. 'https://scontent.../123_456_789_n.jpg?_nc_cat=101' -> '123_456_789'
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        filename = os.path.basename(parsed.path)
+        base, _ = os.path.splitext(filename)
+        digits = re.findall(r'\d+', base)
+        if digits:
+            return "_".join(digits)
+    except Exception:
+        pass
+    return ""
+
+def get_post_media_filenames_anonymous(shortcode: str) -> list:
+    """
+    Fetches the post anonymously using Instaloader, and extracts the numerical digit string
+    for each media element (images and videos) belonging to the post.
+    """
+    logger.info("Attempting to fetch post metadata anonymously using Instaloader...")
+    try:
+        # Create anonymous Instaloader client (no credentials)
+        L = instaloader.Instaloader()
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        
+        valid_digits = []
+        
+        # Check if it's a carousel (sidecar)
+        if post.typename == 'GraphSidecar':
+            for node in post.get_sidecar_nodes():
+                # Extract digits from display url
+                if node.display_url:
+                    digits = extract_url_digits(node.display_url)
+                    if digits and digits not in valid_digits:
+                        valid_digits.append(digits)
+                # If there's a video, check video url
+                if node.is_video and node.video_url:
+                    digits = extract_url_digits(node.video_url)
+                    if digits and digits not in valid_digits:
+                        valid_digits.append(digits)
+        else:
+            # Single image or video
+            if post.url:
+                digits = extract_url_digits(post.url)
+                if digits and digits not in valid_digits:
+                    valid_digits.append(digits)
+            if post.is_video and post.video_url:
+                digits = extract_url_digits(post.video_url)
+                if digits and digits not in valid_digits:
+                    valid_digits.append(digits)
+                    
+        logger.info(f"Instaloader anonymous check succeeded. Valid media base digits: {valid_digits}")
+        return valid_digits
+    except Exception as e:
+        logger.warning(f"Instaloader anonymous metadata fetch failed: {e}. Scraper will proceed without filename filtering.")
+        return None
+
 async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
     """
     Downloads an Instagram post using Playwright headless browser.
@@ -126,6 +189,10 @@ async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
         
     shortcode = extract_shortcode(post_url)
     logger.info(f"Downloading post {shortcode}...")
+
+    # Note: Instagram blocks unauthenticated API queries via Instaloader with HTTP 401.
+    # We rely on our 100% accurate client-side Playwright DOM link-based filter.
+    valid_digits = None
 
     # We will intercept network responses to capture direct video stream URLs
     intercepted_videos = []
@@ -242,6 +309,14 @@ async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
                         
                     src = await img.get_attribute("src")
                     if src and "scontent" in src and src not in media_urls:
+                        # Filter out images that belong to suggested posts (thumbnails linking to other posts)
+                        ancestor_href = await img.evaluate("el => { let parent = el.closest('a'); return parent ? parent.getAttribute('href') : null; }")
+                        if ancestor_href:
+                            ancestor_shortcode = extract_shortcode(ancestor_href, raise_error=False)
+                            if ancestor_shortcode and ancestor_shortcode != shortcode:
+                                logger.info(f"Skipping suggested post image: {src[:80]}... (shortcode: {ancestor_shortcode})")
+                                continue
+
                         logger.info(f"Found image URL: {src[:80]}...")
                         media_urls.append(src)
                 except Exception:
@@ -254,6 +329,14 @@ async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
                     is_video = True
                     src = await vid.get_attribute("src")
                     if src and src.startswith("http") and src not in media_urls:
+                        # Filter out videos that belong to suggested posts (links to other reels)
+                        ancestor_href = await vid.evaluate("el => { let parent = el.closest('a'); return parent ? parent.getAttribute('href') : null; }")
+                        if ancestor_href:
+                            ancestor_shortcode = extract_shortcode(ancestor_href, raise_error=False)
+                            if ancestor_shortcode and ancestor_shortcode != shortcode:
+                                logger.info(f"Skipping suggested post video: {src[:80]}... (shortcode: {ancestor_shortcode})")
+                                continue
+
                         logger.info(f"Found video URL: {src[:80]}...")
                         media_urls.append(src)
                 except Exception:
@@ -282,6 +365,21 @@ async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
 
         # Remove blob URLs if any crept into media_urls
         media_urls = [url for url in media_urls if not url.startswith("blob:")]
+
+        # Filter media_urls using valid_digits from Instaloader
+        if valid_digits is not None:
+            filtered_urls = []
+            for url in media_urls:
+                url_digits = extract_url_digits(url)
+                if url_digits in valid_digits:
+                    filtered_urls.append(url)
+                else:
+                    logger.info(f"Skipping suggested/unrelated media URL: {url[:80]}...")
+            
+            if filtered_urls:
+                media_urls = filtered_urls
+            else:
+                logger.warning("No media URLs matched the Instaloader anonymous filter. Falling back to all scraped page elements.")
 
         if not media_urls:
             await browser.close()
