@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThreadDrop | Threads Post Downloader</title>
+    <meta name="description" content="Download Threads posts, images, and videos locally without using the Meta API.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Base styles then Threads overrides -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/threads_style.css">
+</head>
+<body>
+    <!-- Background Decorators -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <!-- Threads "@" icon -->
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
+                </svg>
+                <h1 id="app-title">ThreadDrop</h1>
+            </div>
+            <p class="tagline">Download Threads posts, images, and videos locally.</p>
+            <nav class="page-nav" style="margin-top:14px;display:flex;justify-content:center;">
+                <a href="/batch" style="display:inline-flex;align-items:center;gap:6px;font-size:0.9rem;font-weight:500;color:var(--text-secondary);text-decoration:none;padding:8px 18px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);transition:all 0.35s cubic-bezier(0.4,0,0.2,1);"
+                   onmouseenter="this.style.color='var(--text-primary)';this.style.background='rgba(255,255,255,0.08)';this.style.borderColor='rgba(255,255,255,0.15)'"
+                   onmouseleave="this.style.color='var(--text-secondary)';this.style.background='rgba(255,255,255,0.04)';this.style.borderColor='rgba(255,255,255,0.07)'">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Batch Download (up to 9)
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </a>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Downloader Panel -->
+            <section class="card control-card">
+                <h2 class="section-title">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    New Download
+                </h2>
+
+                <form id="download-form" class="download-form">
+                    <div class="input-group">
+                        <label for="post-url">Threads Post URL</label>
+                        <div class="input-wrapper">
+                            <input type="url" id="post-url" placeholder="https://www.threads.net/@username/post/..." required>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="filename-suffix">Filename Suffix (Optional)</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="filename-suffix" placeholder="e.g., _vacation, _post1 (appended to filename)">
+                        </div>
+                    </div>
+
+                    <!-- Threads Session (Optional) -->
+                    <div class="session-status-card" id="session-status-container">
+                        <div class="session-status-info">
+                            <div class="status-indicator-dot" id="status-indicator"></div>
+                            <span id="session-status-text">Checking Threads Connection...</span>
+                        </div>
+                        <p class="session-desc" id="session-desc-text">
+                            Public Threads posts can be downloaded without logging in. Login is optional.
+                        </p>
+                        <div class="optional-login-notice">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            Login is optional — only needed for private accounts or if you encounter rate limits.
+                        </div>
+                        <div class="session-actions">
+                            <button type="button" id="connect-btn" class="btn btn-secondary btn-connect" style="display: none;">
+                                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <span>Login to Threads (Optional)</span>
+                            </button>
+                            <button type="button" id="disconnect-btn" class="btn btn-danger btn-disconnect" style="display: none;">
+                                <span>Disconnect Account</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="action-buttons">
+                        <button type="submit" id="submit-btn" class="btn btn-primary">
+                            <span>Download Post</span>
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                        <button type="button" id="open-downloads-btn" class="btn btn-secondary">
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>Open Downloads Folder</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Status / Progress Panel -->
+            <section id="status-card" class="card status-card" style="display: none;">
+                <div class="status-header">
+                    <h3 id="status-title">Processing Download...</h3>
+                    <div id="status-spinner" class="spinner"></div>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar-fill"></div>
+                </div>
+                <p id="status-message">Launching browser and fetching the Threads post. Please wait...</p>
+
+                <div id="download-result-preview" class="download-result-preview" style="display: none;">
+                    <div class="preview-info">
+                        <div class="badge success-badge">Success</div>
+                        <span id="result-username" class="result-username">@threads_user</span>
+                    </div>
+                    <p id="result-caption" class="result-caption">Post caption...</p>
+                    <div id="result-media-count" class="result-media-count">Downloaded 0 files.</div>
+                </div>
+            </section>
+
+            <!-- Downloaded Posts Library -->
+            <section class="history-section">
+                <div class="history-header">
+                    <h2 class="section-title">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        Downloaded Posts Library
+                    </h2>
+                    <span id="history-count" class="history-count">0 items</span>
+                </div>
+
+                <div id="history-grid" class="history-grid">
+                    <div class="no-history-state" id="no-history">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="4"></circle>
+                            <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
+                        </svg>
+                        <p>No downloads yet. Enter a Threads post URL above to get started!</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>ThreadDrop • Locally hosted Python Application</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/threads_app.js"></script>
+</body>
+</html>
