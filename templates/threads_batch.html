@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThreadDrop | Batch Download (Up to 9 Posts)</title>
+    <meta name="description" content="Download up to 9 Threads posts at once with ThreadDrop batch downloader.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Base styles then Threads overrides -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/threads_style.css">
+    <link rel="stylesheet" href="/static/css/batch.css">
+</head>
+<body>
+    <!-- Background Decorators -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
+                </svg>
+                <h1 id="app-title">ThreadDrop <span class="batch-label">Batch</span></h1>
+            </div>
+            <p class="tagline">Download up to 9 Threads posts at once.</p>
+            <nav class="page-nav">
+                <a href="/" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Single Download
+                </a>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Batch Downloader Panel -->
+            <section class="card control-card">
+                <h2 class="section-title">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Batch Download
+                    <span class="post-counter" id="post-counter">3 / 9</span>
+                </h2>
+
+                <!-- Threads Session (Optional) -->
+                <div class="session-status-card" id="session-status-container">
+                    <div class="session-status-info">
+                        <div class="status-indicator-dot" id="status-indicator"></div>
+                        <span id="session-status-text">Checking Threads Connection...</span>
+                    </div>
+                    <p class="session-desc" id="session-desc-text">
+                        Public Threads posts can be downloaded without logging in. Login is optional.
+                    </p>
+                    <div class="optional-login-notice">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        Login is optional — only needed for private accounts or rate limits.
+                    </div>
+                    <div class="session-actions">
+                        <button type="button" id="connect-btn" class="btn btn-secondary btn-connect" style="display: none;">
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            <span>Login to Threads (Optional)</span>
+                        </button>
+                        <button type="button" id="disconnect-btn" class="btn btn-danger btn-disconnect" style="display: none;">
+                            <span>Disconnect Account</span>
+                        </button>
+                    </div>
+                </div>
+
+                <form id="batch-download-form" class="batch-form">
+                    <div id="post-rows-container" class="post-rows-container">
+                        <!-- Post rows injected by JS -->
+                    </div>
+
+                    <button type="button" id="add-row-btn" class="btn btn-add-row">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        <span>Add Another Post</span>
+                    </button>
+
+                    <!-- Action Buttons -->
+                    <div class="action-buttons">
+                        <button type="submit" id="submit-btn" class="btn btn-primary">
+                            <span>Download All Posts</span>
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                        <button type="button" id="open-downloads-btn" class="btn btn-secondary">
+                            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>Open Downloads Folder</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Batch Progress Section -->
+            <section id="batch-status-card" class="card status-card" style="display: none;">
+                <div class="status-header">
+                    <h3 id="batch-status-title">Processing Batch Download...</h3>
+                    <div id="batch-status-spinner" class="spinner"></div>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="batch-progress-bar" class="progress-bar-fill" style="width:0%;animation:none;"></div>
+                </div>
+                <p id="batch-status-message">Starting batch download. Please wait...</p>
+
+                <div id="batch-results-list" class="batch-results-list"></div>
+
+                <div id="batch-summary" class="batch-summary" style="display: none;">
+                    <div class="batch-summary-stats">
+                        <div class="summary-stat summary-stat-success">
+                            <span class="summary-stat-number" id="summary-succeeded">0</span>
+                            <span class="summary-stat-label">Succeeded</span>
+                        </div>
+                        <div class="summary-stat summary-stat-failed">
+                            <span class="summary-stat-number" id="summary-failed">0</span>
+                            <span class="summary-stat-label">Failed</span>
+                        </div>
+                        <div class="summary-stat summary-stat-total">
+                            <span class="summary-stat-number" id="summary-total">0</span>
+                            <span class="summary-stat-label">Total</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>ThreadDrop • Locally hosted Python Application</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/threads_batch.js"></script>
+</body>
+</html>
