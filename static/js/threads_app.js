@@ -37,6 +37,33 @@ document.addEventListener("DOMContentLoaded", () => {
     checkAuthStatus();
     loadHistory();
 
+    // ── Resolve share URLs on blur ──────────────────────────────
+    postUrlInput.addEventListener("blur", async () => {
+        const url = postUrlInput.value.trim();
+        if (!url || !url.includes("/share/")) return;
+
+        const originalPlaceholder = postUrlInput.placeholder;
+        postUrlInput.placeholder = "Resolving share link...";
+        postUrlInput.disabled = true;
+
+        try {
+            const res = await fetch("/api/resolve-url", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+            });
+            const data = await res.json();
+            if (data.success && data.resolved_url !== url) {
+                postUrlInput.value = data.resolved_url;
+            }
+        } catch (err) {
+            console.error("Failed to resolve share URL:", err);
+        } finally {
+            postUrlInput.disabled = false;
+            postUrlInput.placeholder = originalPlaceholder;
+        }
+    });
+
     // ── Auth status ──────────────────────────────────────────────
 
     async function checkAuthStatus() {

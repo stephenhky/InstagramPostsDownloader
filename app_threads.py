@@ -95,6 +95,28 @@ async def api_auth_logout():
     return {"success": success}
 
 
+class ResolveUrlRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/resolve-url")
+async def api_resolve_url(req: ResolveUrlRequest):
+    """Resolves a Threads share/redirect URL to its canonical form."""
+    from threads_downloader import resolve_share_url
+
+    url = req.url.strip()
+    # Only resolve URLs that look like share/redirect links
+    if "/share/" not in url:
+        return {"success": True, "resolved_url": url}
+
+    try:
+        resolved = resolve_share_url(url)
+        return {"success": True, "resolved_url": resolved}
+    except Exception as e:
+        logger.error(f"Failed to resolve URL: {e}")
+        return {"success": False, "resolved_url": url, "error": str(e)}
+
+
 @app.post("/api/download")
 async def api_download(req: DownloadRequest):
     """Downloads a single Threads post. Login is optional for public posts."""
