@@ -35,6 +35,57 @@ def extract_post_info(url: str, raise_error: bool = True) -> tuple:
     return match.group(1), match.group(2)
 
 
+def resolve_share_url(url: str) -> str:
+    """Resolves a Threads share/redirect URL (e.g. https://www.threads.com/share/CODE/)
+    to its canonical /@username/post/POST_ID form.
+    Threads share links return a 302 HTTP redirect header containing the formal post URL.
+    """
+    if "/share/" not in url:
+        return url
+
+    clean_url = url.strip()
+    if not clean_url.startswith("http"):
+        clean_url = "https://" + clean_url.lstrip("/")
+
+    preferred_domain = "threads.com" if "threads.com" in clean_url else "threads.net"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    try:
+        session = requests.Session()
+        res = session.get(clean_url, headers=headers, allow_redirects=True, timeout=10)
+
+        all_responses = res.history + [res]
+        for r in all_responses:
+            loc = r.headers.get("Location", "")
+            match = re.search(r"/(?P<user>@[^/?#&]+)/post/(?P<postid>[^/?#&]+)", loc)
+            if match:
+                resolved = f"https://www.{preferred_domain}/{match.group('user')}/post/{match.group('postid')}"
+                logger.info(f"Resolved share URL from Location header: {url} -> {resolved}")
+                return resolved
+
+            match = re.search(r"/(?P<user>@[^/?#&]+)/post/(?P<postid>[^/?#&]+)", r.url)
+            if match:
+                resolved = f"https://www.{preferred_domain}/{match.group('user')}/post/{match.group('postid')}"
+                logger.info(f"Resolved share URL from response URL: {url} -> {resolved}")
+                return resolved
+    except Exception as e:
+        logger.warning(f"Could not resolve share URL '{url}': {e}")
+
+    return url
+
+
 def is_authenticated() -> bool:
     """Returns True only when the saved session contains real Threads/Instagram auth cookies."""
     return _verify_saved_session()
@@ -227,6 +278,15 @@ async def download_threads_post(post_url: str, suffix: str = None) -> dict:
     normalized_url = re.sub(r"threads\.com", "threads.net", post_url)
     if not normalized_url.startswith("http"):
         normalized_url = "https://www." + normalized_url.lstrip("/")
+
+    # Resolve share/redirect URLs to canonical form
+    if "/share/" in normalized_url:
+        try:
+            resolved = resolve_share_url(normalized_url)
+            resolved = re.sub(r"threads\.com", "threads.net", resolved)
+            normalized_url = resolved
+        except Exception as e:
+            logger.warning(f"Could not resolve share URL, using as-is: {e}")
 
     username, post_id = extract_post_info(normalized_url)
     logger.info(f"Downloading Threads post '{post_id}' by @{username}...")

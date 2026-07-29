@@ -325,7 +325,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let slidesHtml = "";
         post.media_files.forEach((filename, idx) => {
             const isVideo = filename.toLowerCase().endsWith(".mp4");
-            const mediaUrl = `/downloads/${post.shortcode}/${filename}`;
+            const mediaUrl = `/downloads_instagram/${post.shortcode}/${filename}`;
             const activeClass = idx === 0 ? "active" : "";
             
             if (isVideo) {

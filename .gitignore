@@ -13,7 +13,8 @@ ENV/
 
 # Project specific data (CRITICAL: Private login cookies and downloaded files)
 .sessions/
-downloads/
+downloads_instagram/
+downloads_threads/
 
 # OS/System files
 .DS_Store

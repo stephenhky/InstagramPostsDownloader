@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Instagram Downloader API")
 
 # Ensure required directories exist
-os.makedirs("downloads", exist_ok=True)
+os.makedirs("downloads_instagram", exist_ok=True)
 os.makedirs(".sessions", exist_ok=True)
 os.makedirs("static/css", exist_ok=True)
 os.makedirs("static/js", exist_ok=True)
@@ -51,7 +51,7 @@ class OpenFolderRequest(BaseModel):
     shortcode: Optional[str] = None
 
 # Mount downloaded files so the browser can serve/display them directly
-app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
+app.mount("/downloads_instagram", StaticFiles(directory="downloads_instagram"), name="downloads_instagram")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -150,7 +150,7 @@ async def api_history():
     """Scans downloads directory and returns list of downloaded posts metadata."""
     import json
     history = []
-    downloads_dir = "downloads"
+    downloads_dir = "downloads_instagram"
     
     if not os.path.exists(downloads_dir):
         return {"success": True, "history": []}
@@ -181,7 +181,7 @@ async def api_history():
 @app.post("/api/open-folder")
 async def api_open_folder(req: OpenFolderRequest):
     """Opens the local download folder in macOS Finder."""
-    base_dir = os.path.abspath("downloads")
+    base_dir = os.path.abspath("downloads_instagram")
     target_dir = base_dir
 
     if req.shortcode:

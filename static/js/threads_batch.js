@@ -171,7 +171,36 @@ document.addEventListener("DOMContentLoaded", () => {
         postRowsContainer.appendChild(row);
         updatePostCounter();
         updateAddButtonState();
-        row.querySelector(".row-url-input").focus();
+
+        // Resolve Threads share URLs on blur
+        const urlInput = row.querySelector(".row-url-input");
+        urlInput.addEventListener("blur", async () => {
+            const url = urlInput.value.trim();
+            if (!url || !url.includes("/share/")) return;
+
+            const originalPlaceholder = urlInput.placeholder;
+            urlInput.placeholder = "Resolving share link...";
+            urlInput.disabled = true;
+
+            try {
+                const res = await fetch("/api/resolve-url", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url }),
+                });
+                const data = await res.json();
+                if (data.success && data.resolved_url !== url) {
+                    urlInput.value = data.resolved_url;
+                }
+            } catch (err) {
+                console.error("Failed to resolve share URL:", err);
+            } finally {
+                urlInput.disabled = false;
+                urlInput.placeholder = originalPlaceholder;
+            }
+        });
+
+        urlInput.focus();
     }
 
     function renumberRows() {
