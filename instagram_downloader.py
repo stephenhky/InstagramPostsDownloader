@@ -386,7 +386,7 @@ async def download_instagram_post(post_url: str, suffix: str = None) -> dict:
             raise RuntimeError("Could not locate any media files on this post. Instagram might be blocking access.")
 
         # Set up output directory
-        download_dir = os.path.abspath(os.path.join("downloads", shortcode))
+        download_dir = os.path.abspath(os.path.join("downloads_instagram", shortcode))
         os.makedirs(download_dir, exist_ok=True)
         
         logger.info(f"Found {len(media_urls)} media URLs. Starting download...")
