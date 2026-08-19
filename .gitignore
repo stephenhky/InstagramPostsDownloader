@@ -13,8 +13,15 @@ ENV/
 
 # Project specific data (CRITICAL: Private login cookies and downloaded files)
 .sessions/
+sessions/
+downloads/
 downloads_instagram/
 downloads_threads/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
 
 # OS/System files
 .DS_Store

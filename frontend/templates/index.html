@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ThreadDrop | Threads Post Downloader</title>
-    <meta name="description" content="Download Threads posts, images, and videos locally without using the Meta API.">
+    <title>InstaDrop | Media Downloader</title>
+    <meta name="description" content="A self-hosted utility to download Instagram and Threads posts locally.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Base styles then Threads overrides -->
+    <!-- Stylesheet -->
     <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/threads_style.css">
 </head>
-<body>
+<body class="platform-instagram">
     <!-- Background Decorators -->
     <div class="bg-glow bg-glow-1"></div>
     <div class="bg-glow bg-glow-2"></div>
@@ -22,17 +21,28 @@
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
+            <div class="platform-toggle-wrapper" style="margin-bottom: 20px;">
+                <div class="platform-toggle">
+                    <button type="button" class="platform-btn active" data-platform="instagram">Instagram</button>
+                    <button type="button" class="platform-btn" data-platform="threads">Threads</button>
+                </div>
+            </div>
+
             <div class="logo-area">
-                <!-- Threads "@" icon -->
-                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg id="logo-icon-instagram" class="logo-icon platform-icon-ig" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
+                <svg id="logo-icon-threads" class="logo-icon platform-icon-th" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
                     <circle cx="12" cy="12" r="4"></circle>
                     <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
                 </svg>
-                <h1 id="app-title">ThreadDrop</h1>
+                <h1 id="app-title">InstaDrop</h1>
             </div>
-            <p class="tagline">Download Threads posts, images, and videos locally.</p>
+            <p class="tagline" id="app-tagline">Download posts, videos, and slide carousels locally.</p>
             <nav class="page-nav" style="margin-top:14px;display:flex;justify-content:center;">
-                <a href="/batch" style="display:inline-flex;align-items:center;gap:6px;font-size:0.9rem;font-weight:500;color:var(--text-secondary);text-decoration:none;padding:8px 18px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);transition:all 0.35s cubic-bezier(0.4,0,0.2,1);"
+                <a href="/batch" class="batch-nav-link" style="display:inline-flex;align-items:center;gap:6px;font-size:0.9rem;font-weight:500;color:var(--text-secondary);text-decoration:none;padding:8px 18px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);transition:all 0.35s cubic-bezier(0.4,0,0.2,1);"
                    onmouseenter="this.style.color='var(--text-primary)';this.style.background='rgba(255,255,255,0.08)';this.style.borderColor='rgba(255,255,255,0.15)'"
                    onmouseleave="this.style.color='var(--text-secondary)';this.style.background='rgba(255,255,255,0.04)';this.style.borderColor='rgba(255,255,255,0.07)'">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -48,7 +58,7 @@
             </nav>
         </header>
 
-        <!-- Main Content -->
+        <!-- Main Content Grid -->
         <main class="main-content">
             <!-- Downloader Panel -->
             <section class="card control-card">
@@ -60,12 +70,12 @@
                     </svg>
                     New Download
                 </h2>
-
+                
                 <form id="download-form" class="download-form">
                     <div class="input-group">
-                        <label for="post-url">Threads Post URL</label>
+                        <label for="post-url" id="post-url-label">Instagram Post / Reel URL</label>
                         <div class="input-wrapper">
-                            <input type="url" id="post-url" placeholder="https://www.threads.net/@username/post/..." required>
+                            <input type="url" id="post-url" placeholder="https://www.instagram.com/p/..." required>
                         </div>
                     </div>
 
@@ -76,16 +86,15 @@
                         </div>
                     </div>
 
-                    <!-- Threads Session (Optional) -->
+                    <!-- Session Connection -->
                     <div class="session-status-card" id="session-status-container">
                         <div class="session-status-info">
                             <div class="status-indicator-dot" id="status-indicator"></div>
-                            <span id="session-status-text">Checking Threads Connection...</span>
+                            <span id="session-status-text">Checking Connection...</span>
                         </div>
-                        <p class="session-desc" id="session-desc-text">
-                            Public Threads posts can be downloaded without logging in. Login is optional.
-                        </p>
-                        <div class="optional-login-notice">
+                        <p class="session-desc" id="session-desc-text">We need an active session to retrieve media posts.</p>
+                        
+                        <div class="optional-login-notice" id="threads-optional-notice" style="display: none;">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="10"></circle>
                                 <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -93,13 +102,14 @@
                             </svg>
                             Login is optional — only needed for private accounts or if you encounter rate limits.
                         </div>
+
                         <div class="session-actions">
                             <button type="button" id="connect-btn" class="btn btn-secondary btn-connect" style="display: none;">
                                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                                 </svg>
-                                <span>Login to Threads (Optional)</span>
+                                <span>Connect Account</span>
                             </button>
                             <button type="button" id="disconnect-btn" class="btn btn-danger btn-disconnect" style="display: none;">
                                 <span>Disconnect Account</span>
@@ -107,7 +117,7 @@
                         </div>
                     </div>
 
-                    <!-- Action Buttons -->
+                    <!-- Buttons Row -->
                     <div class="action-buttons">
                         <button type="submit" id="submit-btn" class="btn btn-primary">
                             <span>Download Post</span>
@@ -126,7 +136,7 @@
                 </form>
             </section>
 
-            <!-- Status / Progress Panel -->
+            <!-- Loading & Status Panel -->
             <section id="status-card" class="card status-card" style="display: none;">
                 <div class="status-header">
                     <h3 id="status-title">Processing Download...</h3>
@@ -135,19 +145,19 @@
                 <div class="progress-bar-container">
                     <div id="progress-bar" class="progress-bar-fill"></div>
                 </div>
-                <p id="status-message">Launching browser and fetching the Threads post. Please wait...</p>
-
+                <p id="status-message">Connecting to platform and fetching post data. Please wait...</p>
+                
                 <div id="download-result-preview" class="download-result-preview" style="display: none;">
                     <div class="preview-info">
                         <div class="badge success-badge">Success</div>
-                        <span id="result-username" class="result-username">@threads_user</span>
+                        <span id="result-username" class="result-username">@user</span>
                     </div>
                     <p id="result-caption" class="result-caption">Post caption...</p>
                     <div id="result-media-count" class="result-media-count">Downloaded 0 files.</div>
                 </div>
             </section>
 
-            <!-- Downloaded Posts Library -->
+            <!-- Gallery / History Section -->
             <section class="history-section">
                 <div class="history-header">
                     <h2 class="section-title">
@@ -161,22 +171,29 @@
                 </div>
 
                 <div id="history-grid" class="history-grid">
+                    <!-- History Cards will be dynamically injected here -->
                     <div class="no-history-state" id="no-history">
-                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <svg id="empty-icon-ig" class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                        </svg>
+                        <svg id="empty-icon-th" class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display: none;">
                             <circle cx="12" cy="12" r="4"></circle>
                             <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
                         </svg>
-                        <p>No downloads yet. Enter a Threads post URL above to get started!</p>
+                        <p id="no-history-text">No downloads yet. Enter a post URL above to get started!</p>
                     </div>
                 </div>
             </section>
         </main>
 
         <footer class="app-footer">
-            <p>ThreadDrop • Locally hosted Python Application</p>
+            <p>Media Downloader • Locally hosted Python Application</p>
         </footer>
     </div>
 
-    <script src="/static/js/threads_app.js"></script>
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
