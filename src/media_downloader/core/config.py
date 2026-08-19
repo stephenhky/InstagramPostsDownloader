@@ -6,7 +6,7 @@ from dataclasses import dataclass
 class Settings:
     """Centralized configuration loaded from environment variables."""
     DOWNLOADS_BASE_DIR: str = os.getenv("DOWNLOADS_BASE_DIR", "downloads")
-    SESSIONS_DIR: str = os.getenv("SESSIONS_DIR", "sessions")
+    SESSIONS_DIR: str = os.getenv("SESSIONS_DIR", ".sessions")
     SERVER_HOST: str = os.getenv("SERVER_HOST", "127.0.0.1")
     SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8000"))
 
