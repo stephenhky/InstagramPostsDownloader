@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, field_validator
 
 class DownloadRequest(BaseModel):
@@ -26,3 +26,32 @@ class OpenFolderRequest(BaseModel):
 
 class ResolveUrlRequest(BaseModel):
     url: str
+
+class SpreadsheetDownloadPostRequest(BaseModel):
+    url: str
+    suffix: Optional[str] = None
+    rectified_link: Optional[str] = None
+
+class SpreadsheetPostItem(BaseModel):
+    datetime: str
+    link: str
+    rectified_link: Optional[str] = None
+    username: str
+    platform: str
+    status: str
+    comment: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class SpreadsheetSyncResponse(BaseModel):
+    success: bool
+    posts: List[SpreadsheetPostItem]
+    pending_count: int
+    downloaded_count: int
+    message: Optional[str] = None
+
+class SpreadsheetDownloadPendingResponse(BaseModel):
+    success: bool
+    total_pending: int
+    succeeded: int
+    failed: int
+    results: List[Dict[str, Any]]

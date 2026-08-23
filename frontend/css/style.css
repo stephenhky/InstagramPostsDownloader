@@ -1183,3 +1183,195 @@ body.platform-threads .result-active .result-icon {
     .post-row { grid-template-columns: auto 1fr auto; }
     .row-suffix-input { display: none; }
 }
+
+/* ==============================================================
+   SPREADSHEET CSS
+   ============================================================== */
+
+.posts-table-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.posts-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.posts-table-header {
+    display: grid;
+    grid-template-columns: 140px 1fr 1fr 140px 100px 100px 200px;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: var(--border-radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.posts-table-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 1fr 140px 100px 100px 200px;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 16px;
+    border-radius: var(--border-radius-md);
+    background: rgba(10, 7, 18, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: var(--transition-smooth);
+}
+
+.posts-table-row:hover {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(10, 7, 18, 0.45);
+}
+
+.post-cell {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.post-cell-datetime {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.post-cell-link {
+    overflow: hidden;
+}
+
+.post-link {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: var(--transition-smooth);
+}
+
+.post-link:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+.post-cell-username {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.post-cell-platform {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-pending {
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.status-downloaded {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success-color);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.post-cell-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.no-action {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.spreadsheet-suffix {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(10, 7, 18, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    transition: var(--transition-smooth);
+}
+
+.spreadsheet-suffix:focus {
+    outline: none;
+    border-color: var(--secondary-color);
+    background: rgba(10, 7, 18, 0.8);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.12);
+}
+
+.btn-download-post {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    white-space: nowrap;
+}
+
+.btn-download-post:hover {
+    background: var(--primary-glow);
+    border-color: transparent;
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.25);
+}
+
+.btn-download-post:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-download-post.btn-success {
+    background: var(--success-color);
+    border-color: transparent;
+    color: white;
+}
+
+@media (max-width: 1024px) {
+    .posts-table-header,
+    .posts-table-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .post-cell::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-right: 8px;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+    }
+}

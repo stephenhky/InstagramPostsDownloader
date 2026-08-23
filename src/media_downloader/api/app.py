@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from media_downloader.core.config import settings
 from media_downloader.platforms.instagram import InstagramDownloader
 from media_downloader.platforms.threads import ThreadsDownloader
-from media_downloader.api.routes import auth, download, history
+from media_downloader.api.routes import auth, download, history, spreadsheet
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -69,6 +69,8 @@ async def inject_platform(request: Request, call_next):
             platform = parts[2]
             if platform in platform_downloaders:
                 request.state.platform = platform
+            elif platform == "spreadsheet":
+                pass
             else:
                 return HTMLResponse(
                     content=f'{{"detail":"Unknown platform: {platform}"}}',
@@ -82,6 +84,7 @@ async def inject_platform(request: Request, call_next):
 app.include_router(auth.router,     prefix="/api/{platform}/auth", tags=["auth"])
 app.include_router(download.router, prefix="/api/{platform}",      tags=["download"])
 app.include_router(history.router,  prefix="/api/{platform}",      tags=["history"])
+app.include_router(spreadsheet.router, prefix="/api/spreadsheet",   tags=["spreadsheet"])
 
 
 # ── Static mounts — use absolute paths so they never depend on CWD ────────────
@@ -113,6 +116,14 @@ async def read_batch():
     if os.path.exists(batch_path):
         return FileResponse(batch_path)
     return HTMLResponse(f"<h1>Template not found: {batch_path}</h1>", status_code=404)
+
+
+@app.get("/spreadsheet")
+async def read_spreadsheet():
+    spreadsheet_path = os.path.join(FRONTEND_DIR, "templates", "spreadsheet.html")
+    if os.path.exists(spreadsheet_path):
+        return FileResponse(spreadsheet_path)
+    return HTMLResponse(f"<h1>Template not found: {spreadsheet_path}</h1>", status_code=404)
 
 
 if __name__ == "__main__":
