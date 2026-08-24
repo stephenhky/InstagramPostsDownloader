@@ -17,10 +17,6 @@ from media_downloader.platforms.base import BasePlatformDownloader
 
 logger = logging.getLogger(__name__)
 
-# Tracks whether a login flow is already running.
-_login_lock = threading.Lock()
-_login_in_progress = False
-
 class ThreadsDownloader(BasePlatformDownloader):
     platform_name = "threads"
     url_pattern = re.compile(
@@ -93,6 +89,10 @@ class ThreadsDownloader(BasePlatformDownloader):
 
         return url
 
+    def __init__(self):
+        self._login_lock = asyncio.Lock()
+        self._login_in_progress = False
+
     def is_authenticated(self) -> bool:
         return is_authenticated(
             self.get_session_file(), 
@@ -103,32 +103,21 @@ class ThreadsDownloader(BasePlatformDownloader):
     def logout_session(self) -> bool:
         return logout_session(self.get_session_file())
 
-    def start_login_flow(self) -> bool:
-        global _login_in_progress
-        with _login_lock:
-            if _login_in_progress:
-                logger.info("Login already in progress.")
-                return False
-            _login_in_progress = True
+    async def start_login_flow(self) -> bool:
+        if self._login_in_progress:
+            logger.info("Threads login already in progress.")
+            return False
 
-        def _run():
-            global _login_in_progress
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        async with self._login_lock:
+            self._login_in_progress = True
             try:
-                loop.run_until_complete(self._login_flow_impl())
-            except Exception as e:
-                logger.error(f"Login flow error: {e}")
+                return await self._login_flow_impl()
             finally:
-                _login_in_progress = False
-                loop.close()
+                self._login_in_progress = False
 
-        threading.Thread(target=_run, daemon=True).start()
-        return True
-
-    async def _login_flow_impl(self) -> None:
+    async def _login_flow_impl(self) -> bool:
         os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
-        logger.info("Login browser starting...")
+        logger.info("Starting interactive headed login flow for Threads...")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
@@ -147,7 +136,7 @@ class ThreadsDownloader(BasePlatformDownloader):
                             'text-align:center','font:600 14px/1.4 system-ui,sans-serif',
                             'box-shadow:0 2px 8px rgba(0,0,0,.25)'
                         ].join(';');
-                        b.textContent = 'ThreadDrop — Log in to Threads below, then CLOSE THIS WINDOW when done.';
+                        b.textContent = 'ThreadDrop — Log in to Threads below. Once logged in, session will save automatically.';
                         document.body.prepend(b);
                     }""")
                 except Exception:
@@ -157,27 +146,55 @@ class ThreadsDownloader(BasePlatformDownloader):
             await page.goto(self.login_url)
             await inject_banner(page)
 
-            logger.info("Browser open — waiting for user to log in and close the window.")
+            logger.info("Browser open — waiting for user to log in.")
 
-            timeout_seconds = 300
+            timeout_seconds = 240
             start_time = time.time()
+            logged_in = False
 
             while time.time() - start_time < timeout_seconds:
                 if page.is_closed():
                     logger.info("Browser window closed by user.")
                     break
+
+                try:
+                    cookies = await context.cookies()
+                    if any(c.get('name') in {'sessionid', 'ds_user_id'} for c in cookies):
+                        logged_in = True
+                        break
+                except Exception as e:
+                    logger.warning(f"Error checking cookies: {e}")
+
+                await asyncio.sleep(2)
+
+            if logged_in:
+                logger.info("Login detected. Waiting 3 seconds for session cookies and storage to settle...")
+                try:
+                    await page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+
                 try:
                     state = await context.storage_state()
                     save_state_atomic(state, self.get_session_file())
+                    logger.info(f"Threads authentication state saved to {self.get_session_file()}")
+                    success = True
+                except Exception as e:
+                    logger.error(f"Error saving storage state: {e}")
+                    success = False
+            else:
+                try:
+                    cookies = await context.cookies()
+                    if any(c.get('name') in {'sessionid', 'ds_user_id'} for c in cookies):
+                        state = await context.storage_state()
+                        save_state_atomic(state, self.get_session_file())
+                        logger.info(f"Threads session saved from closed window: {self.get_session_file()}")
+                        success = True
+                    else:
+                        logger.warning("No Threads auth cookies found.")
+                        success = False
                 except Exception:
-                    pass
-                await asyncio.sleep(3)
-
-            try:
-                state = await context.storage_state()
-                save_state_atomic(state, self.get_session_file())
-            except Exception:
-                pass
+                    success = False
 
             try:
                 await browser.close()
@@ -186,8 +203,9 @@ class ThreadsDownloader(BasePlatformDownloader):
 
             if self.is_authenticated():
                 logger.info("Threads session verified — user is logged in.")
+                return True
             else:
-                logger.warning("Session saved but no auth cookies found — login incomplete.")
+                return success
 
     async def download_post(self, post_url: str, suffix: str = None) -> dict:
         normalized_url = re.sub(r"threads\.com", "threads.net", post_url)

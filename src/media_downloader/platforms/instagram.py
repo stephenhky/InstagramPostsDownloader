@@ -37,29 +37,74 @@ class InstagramDownloader(BasePlatformDownloader):
             return ""
         return match.group(1)
 
+    def __init__(self):
+        self._login_lock = asyncio.Lock()
+        self._login_in_progress = False
+
     def is_authenticated(self) -> bool:
-        return is_authenticated(self.get_session_file())
+        return is_authenticated(
+            self.get_session_file(),
+            cookie_names={"sessionid", "ds_user_id"},
+            domains={"instagram.com"}
+        )
 
     def logout_session(self) -> bool:
         return logout_session(self.get_session_file())
 
     async def start_login_flow(self) -> bool:
+        if self._login_in_progress:
+            logger.info("Instagram login already in progress.")
+            return False
+
+        async with self._login_lock:
+            self._login_in_progress = True
+            try:
+                return await self._login_flow_impl()
+            finally:
+                self._login_in_progress = False
+
+    async def _login_flow_impl(self) -> bool:
         os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
-        logger.info("Starting interactive headed login flow...")
-        
+        logger.info("Starting interactive headed login flow for Instagram...")
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
             context = await browser.new_context()
             page = await context.new_page()
+
+            async def inject_banner(pg):
+                try:
+                    await pg.evaluate("""() => {
+                        if (document.getElementById('ig-login-banner')) return;
+                        const b = document.createElement('div');
+                        b.id = 'ig-login-banner';
+                        b.style.cssText = [
+                            'position:fixed','top:0','left:0','right:0','z-index:2147483647',
+                            'background:#e1306c','color:#fff','padding:10px 20px',
+                            'text-align:center','font:600 14px/1.4 system-ui,sans-serif',
+                            'box-shadow:0 2px 8px rgba(0,0,0,.25)'
+                        ].join(';');
+                        b.textContent = 'InstaDrop — Log in to Instagram below. Once logged in, session will save automatically.';
+                        document.body.prepend(b);
+                    }""")
+                except Exception:
+                    pass
+
+            page.on("load", lambda _: asyncio.ensure_future(inject_banner(page)))
             await page.goto(self.login_url)
-            
+            await inject_banner(page)
+
             logged_in = False
-            timeout_seconds = 180
+            timeout_seconds = 240
             start_time = time.time()
-            
+
             logger.info("Please log in manually on the browser window.")
-            
+
             while time.time() - start_time < timeout_seconds:
+                if page.is_closed():
+                    logger.warning("Browser window was closed by the user.")
+                    break
+
                 try:
                     cookies = await context.cookies()
                     if any(c['name'] == 'sessionid' for c in cookies):
@@ -67,30 +112,44 @@ class InstagramDownloader(BasePlatformDownloader):
                         break
                 except Exception as e:
                     logger.warning(f"Error checking cookies: {e}")
-                    
-                if page.is_closed():
-                    logger.warning("Browser window was closed by the user.")
-                    break
-                    
+
                 await asyncio.sleep(2)
-                
+
             if logged_in:
-                logger.info("Login detected. Waiting 4 seconds for session cookies and storage to settle...")
-                await page.wait_for_timeout(4000) # Wait for storage updates
-                
-                state = await context.storage_state()
-                save_state_atomic(state, self.get_session_file())
-                logger.info(f"Authentication state saved to {self.get_session_file()}")
-                success = True
+                logger.info("Login detected. Waiting 3 seconds for session cookies and storage to settle...")
+                try:
+                    await page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+
+                try:
+                    state = await context.storage_state()
+                    save_state_atomic(state, self.get_session_file())
+                    logger.info(f"Authentication state saved to {self.get_session_file()}")
+                    success = True
+                except Exception as e:
+                    logger.error(f"Error saving storage state: {e}")
+                    success = False
             else:
-                logger.error("Authentication timed out or browser was closed before completion.")
-                success = False
-                
+                # If window was closed, still try to save if session cookies exist
+                try:
+                    cookies = await context.cookies()
+                    if any(c['name'] == 'sessionid' for c in cookies):
+                        state = await context.storage_state()
+                        save_state_atomic(state, self.get_session_file())
+                        logger.info(f"Session saved from closed window: {self.get_session_file()}")
+                        success = True
+                    else:
+                        logger.warning("No sessionid cookie found.")
+                        success = False
+                except Exception:
+                    success = False
+
             try:
                 await browser.close()
             except Exception:
                 pass
-                
+
             return success
 
     def _get_post_media_filenames_anonymous(self, shortcode: str) -> list:
