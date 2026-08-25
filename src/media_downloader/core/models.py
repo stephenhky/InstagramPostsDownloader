@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, field_validator
 
 class DownloadRequest(BaseModel):
@@ -37,8 +37,8 @@ class SpreadsheetPostItem(BaseModel):
     link: str
     rectified_link: Optional[str] = None
     username: str
-    platform: str
-    status: str
+    platform: Literal["instagram", "threads"]
+    status: Literal["PENDING", "RENAMED", "DOWNLOADED"]
     comment: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 

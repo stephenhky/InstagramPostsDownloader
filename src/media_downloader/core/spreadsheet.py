@@ -5,8 +5,19 @@ import tempfile
 import boto3
 from typing import List, Dict, Any, Optional
 from botocore.exceptions import BotoCoreError, ClientError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+import gspread
+from gspread.exceptions import IncorrectCellLabel
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_gspread_error(exc: BaseException) -> bool:
+    """Return True for transient gspread API errors worth retrying."""
+    if isinstance(exc, gspread.exceptions.APIError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return status in (500, 502, 503, 504, 429)
+    return False
 
 
 def _get_s3_client():
@@ -61,7 +72,6 @@ def get_google_sheets_client():
       - A filesystem path to a service account JSON key file
       - The raw JSON string content of the service account key
     """
-    import gspread
     from google.oauth2.service_account import Credentials
 
     service_account_value = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
@@ -101,6 +111,7 @@ def get_google_sheets_client():
                 pass
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
 def get_spreadsheet():
     """Open the target Google Spreadsheet."""
     spreadsheet_id = os.getenv("GOOGLE_SHEETS_ID")
@@ -110,6 +121,7 @@ def get_spreadsheet():
     return client.open_by_key(spreadsheet_id)
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
 def read_sheet_data() -> List[Dict[str, Any]]:
     """Read all data from the first worksheet of the spreadsheet."""
     spreadsheet = get_spreadsheet()
@@ -119,14 +131,15 @@ def read_sheet_data() -> List[Dict[str, Any]]:
     return records
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
 def find_row_index_by_url(worksheet, url: str) -> Optional[int]:
     """Find the 1-based row index for a given URL in the sheet."""
     try:
         url_col = worksheet.find("Link")
-    except Exception:
+    except IncorrectCellLabel:
         try:
             url_col = worksheet.find("link")
-        except Exception:
+        except IncorrectCellLabel:
             return None
     if url_col is None:
         return None
@@ -137,6 +150,7 @@ def find_row_index_by_url(worksheet, url: str) -> Optional[int]:
     return None
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
 def update_row_status(url: str, new_status: str) -> bool:
     """Update the Status cell for the row matching the given URL."""
     spreadsheet = get_spreadsheet()
@@ -148,10 +162,10 @@ def update_row_status(url: str, new_status: str) -> bool:
 
     try:
         status_col = worksheet.find("Status")
-    except Exception:
+    except IncorrectCellLabel:
         try:
             status_col = worksheet.find("status")
-        except Exception:
+        except IncorrectCellLabel:
             logger.warning("Could not find 'Status' column in sheet.")
             return False
     if status_col is None:
