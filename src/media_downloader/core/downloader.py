@@ -35,7 +35,11 @@ def extract_url_digits(url: str) -> str:
 
 def is_cdn_media_url(url: str) -> bool:
     """Returns True if the URL points to a Meta CDN media asset."""
-    return bool(url) and any(d in url for d in (
+    if not url:
+        return False
+    if "static.cdninstagram.com" in url or "/rsrc.php" in url:
+        return False
+    return any(d in url for d in (
         "scontent", "cdninstagram", "fbcdn.net", "fbsbx.com",
     ))
 

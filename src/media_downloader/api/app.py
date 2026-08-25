@@ -20,7 +20,16 @@ _THIS_FILE = os.path.abspath(__file__)            # .../src/media_downloader/api
 _API_DIR   = os.path.dirname(_THIS_FILE)          # .../src/media_downloader/api/
 _PKG_DIR   = os.path.dirname(_API_DIR)            # .../src/media_downloader/
 _SRC_DIR   = os.path.dirname(_PKG_DIR)            # .../src/
-PROJECT_ROOT = os.path.dirname(_SRC_DIR)          # project root (contains pyproject.toml)
+_PACKAGE_PROJECT_ROOT = os.path.dirname(_SRC_DIR) # project root (contains pyproject.toml)
+
+# Prefer CWD if it looks like a project root (has pyproject.toml or frontend/),
+# otherwise fall back to the package-relative path. This avoids resolving to
+# site-packages when the app is installed in a virtualenv.
+_CWD = os.getcwd()
+if os.path.exists(os.path.join(_CWD, "pyproject.toml")) or os.path.exists(os.path.join(_CWD, "frontend")):
+    PROJECT_ROOT = _CWD
+else:
+    PROJECT_ROOT = _PACKAGE_PROJECT_ROOT
 
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
 

@@ -6,6 +6,7 @@ import asyncio
 import threading
 import time
 from datetime import datetime
+from typing import Any, Optional, Tuple, List, Dict
 import urllib.parse
 import requests
 from playwright.async_api import async_playwright
@@ -16,6 +17,101 @@ from media_downloader.core.downloader import download_file, is_cdn_media_url, de
 from media_downloader.platforms.base import BasePlatformDownloader
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_media_from_post_dict(post_dict: dict) -> dict:
+    """Extracts owner, caption, and ordered list of media items from a Threads post dictionary."""
+    user = post_dict.get("user") or {}
+    owner_username = user.get("username")
+
+    caption_obj = post_dict.get("caption")
+    caption = caption_obj.get("text") if isinstance(caption_obj, dict) else ""
+    taken_at = post_dict.get("taken_at")
+
+    carousel_media = post_dict.get("carousel_media")
+    media_items = []
+
+    def get_best_image_url(image_versions2):
+        if not image_versions2 or not isinstance(image_versions2, dict):
+            return None
+        candidates = image_versions2.get("candidates", [])
+        if not candidates:
+            return None
+        sorted_candidates = sorted(
+            candidates,
+            key=lambda c: (c.get("width", 0) or 0) * (c.get("height", 0) or 0),
+            reverse=True,
+        )
+        return sorted_candidates[0].get("url")
+
+    def get_best_video_url(video_versions):
+        if not video_versions or not isinstance(video_versions, list):
+            return None
+        sorted_vids = sorted(
+            video_versions,
+            key=lambda v: (v.get("width", 0) or 0) * (v.get("height", 0) or 0),
+            reverse=True,
+        )
+        return sorted_vids[0].get("url") if sorted_vids else None
+
+    has_video = False
+
+    if carousel_media and isinstance(carousel_media, list):
+        for item in carousel_media:
+            vid_url = get_best_video_url(item.get("video_versions"))
+            if vid_url:
+                has_video = True
+                media_items.append({"type": "video", "url": vid_url})
+            else:
+                img_url = get_best_image_url(item.get("image_versions2"))
+                if img_url:
+                    media_items.append({"type": "image", "url": img_url})
+    else:
+        vid_url = get_best_video_url(post_dict.get("video_versions"))
+        if vid_url:
+            has_video = True
+            media_items.append({"type": "video", "url": vid_url})
+        else:
+            img_url = get_best_image_url(post_dict.get("image_versions2"))
+            if img_url:
+                media_items.append({"type": "image", "url": img_url})
+
+    return {
+        "owner_username": owner_username,
+        "caption": caption,
+        "is_video": has_video,
+        "taken_at": taken_at,
+        "media_items": media_items,
+    }
+
+
+def _find_target_post(data: Any, post_code: str) -> dict | None:
+    """Recursively searches a JSON structure for the post object matching post_code."""
+    candidates = []
+
+    def search(obj):
+        if isinstance(obj, dict):
+            if (obj.get("code") == post_code or obj.get("pk") == post_code or obj.get("id") == post_code) and (
+                "user" in obj or "carousel_media" in obj or "image_versions2" in obj or "video_versions" in obj
+            ):
+                candidates.append(obj)
+            for v in obj.values():
+                search(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                search(item)
+
+    search(data)
+    candidates.sort(
+        key=lambda c: (
+            1 if (c.get("user") and isinstance(c.get("user"), dict) and c.get("user", {}).get("username")) else 0,
+            1 if (c.get("carousel_media") or c.get("image_versions2") or c.get("video_versions")) else 0,
+            1 if c.get("caption") else 0,
+        ),
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
 
 class ThreadsDownloader(BasePlatformDownloader):
     platform_name = "threads"
@@ -41,7 +137,7 @@ class ThreadsDownloader(BasePlatformDownloader):
     def extract_post_id(self, url: str, raise_error: bool = True) -> str:
         _, post_id = self.extract_post_info(url, raise_error)
         return post_id
-        
+
     def extract_username(self, url: str, raise_error: bool = True) -> str:
         username, _ = self.extract_post_info(url, raise_error)
         return username
@@ -95,9 +191,9 @@ class ThreadsDownloader(BasePlatformDownloader):
 
     def is_authenticated(self) -> bool:
         return is_authenticated(
-            self.get_session_file(), 
-            cookie_names={"sessionid", "ds_user_id"}, 
-            domains={"instagram.com", "threads.net"}
+            self.get_session_file(),
+            cookie_names={"sessionid", "ds_user_id"},
+            domains={"instagram.com", "threads.net"},
         )
 
     def logout_session(self) -> bool:
@@ -220,11 +316,8 @@ class ThreadsDownloader(BasePlatformDownloader):
             except Exception as e:
                 logger.warning(f"Could not resolve share URL, using as-is: {e}")
 
-        username, post_id = self.extract_post_info(normalized_url)
-        logger.info(f"Downloading Threads post '{post_id}' by @{username}...")
-
-        intercepted_images: list[str] = []
-        intercepted_videos: list[str] = []
+        extracted_username, post_id = self.extract_post_info(normalized_url)
+        logger.info(f"Downloading Threads post '{post_id}' by @{extracted_username}...")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -239,30 +332,25 @@ class ThreadsDownloader(BasePlatformDownloader):
             page = await context.new_page()
             await page.set_viewport_size({"width": 1280, "height": 900})
 
-            def handle_response(response):
+            # Capture GraphQL / API response bodies matching post_id
+            intercepted_json_bodies = []
+
+            async def handle_response(response):
                 try:
                     url = response.url
                     content_type = response.headers.get("content-type", "").lower()
-                    if not is_cdn_media_url(url):
-                        return
-                    if ".mp4" in url or "video" in content_type:
-                        if url not in intercepted_videos:
-                            logger.info(f"Intercepted video: {url[:80]}...")
-                            intercepted_videos.append(url)
-                    elif "image" in content_type or any(
-                        ext in url for ext in (".jpg", ".jpeg", ".png", ".webp")
-                    ):
-                        if "t51.2885-19" not in url and "t51.29350-19" not in url:
-                            if url not in intercepted_images:
-                                logger.info(f"Intercepted image: {url[:80]}...")
-                                intercepted_images.append(url)
+                    if "json" in content_type or "text" in content_type:
+                        if "graphql" in url or "api" in url or "threads.net" in url:
+                            text = await response.text()
+                            if post_id in text:
+                                intercepted_json_bodies.append(text)
                 except Exception:
                     pass
 
             page.on("response", handle_response)
 
             await page.goto(normalized_url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(1500)
 
             current_url = page.url
             if "login" in current_url or "/accounts/" in current_url:
@@ -281,114 +369,103 @@ class ThreadsDownloader(BasePlatformDownloader):
             )):
                 await browser.close()
                 raise RuntimeError(
-                    "This account is private. You must be following @"
-                    + username
-                    + " on the Threads account you logged in with to download their posts."
+                    f"This account is private. You must be following @{extracted_username} "
+                    f"on the Threads account you logged in with to download their posts."
                 )
 
-            await page.evaluate("window.scrollBy(0, 600)")
-            await page.wait_for_timeout(1200)
-            await page.evaluate("window.scrollTo(0, 0)")
-            await page.wait_for_timeout(800)
+            # Strategy 1: Extract structured JSON data embedded in <script type="application/json">
+            scripts = await page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('script[type="application/json"]')).map(s => s.textContent);
+            }""")
 
-            owner_username = username
-            try:
-                user_link = page.locator("a[href^='/@']").first
-                if await user_link.is_visible():
-                    href = await user_link.get_attribute("href") or ""
-                    extracted = href.lstrip("/@").split("/")[0].split("?")[0]
-                    if extracted:
-                        owner_username = extracted
-            except Exception:
-                pass
-
-            caption = ""
-            try:
-                for loc in await page.locator("span[dir='auto'], p[dir='auto']").all():
-                    text = (await loc.text_content() or "").strip()
-                    if len(text) > 15:
-                        caption = text
-                        break
-            except Exception:
-                pass
-
-            media_urls: list[str] = []
-            is_video = False
-
-            for _slide in range(12):
-                for img in await page.locator("img").all():
-                    try:
-                        src = await img.get_attribute("src") or ""
-                        if not is_cdn_media_url(src):
-                            continue
-                        alt = (await img.get_attribute("alt") or "").lower()
-                        if "profile" in alt or "avatar" in alt:
-                            continue
-                        box = await img.bounding_box()
-                        if box and box["width"] < 100 and box["height"] < 100:
-                            continue
-                        if src not in media_urls:
-                            logger.info(f"Found image: {src[:80]}...")
-                            media_urls.append(src)
-                    except Exception:
-                        pass
-
-                for vid in await page.locator("video").all():
-                    try:
-                        is_video = True
-                        src = await vid.get_attribute("src") or ""
-                        if src.startswith("http") and src not in media_urls:
-                            logger.info(f"Found video: {src[:80]}...")
-                            media_urls.append(src)
-                    except Exception:
-                        pass
-
-                next_btn = page.locator(
-                    "button[aria-label='Next'], button[aria-label='next'], "
-                    "button:has(svg[aria-label='Next'])"
-                ).first
+            target_post_dict = None
+            for s in scripts:
                 try:
-                    if await next_btn.is_visible(timeout=800):
-                        await next_btn.evaluate("el => el.click()")
-                        await page.wait_for_timeout(900)
-                    else:
+                    data = json.loads(s)
+                    found = _find_target_post(data, post_id)
+                    if found:
+                        target_post_dict = found
                         break
                 except Exception:
-                    break
+                    pass
 
-            if not media_urls:
-                media_urls.extend(intercepted_images)
-                logger.info(f"DOM found nothing; using {len(media_urls)} intercepted image(s).")
+            # Strategy 2: Check intercepted JSON responses
+            if not target_post_dict:
+                for s in intercepted_json_bodies:
+                    try:
+                        data = json.loads(s)
+                        found = _find_target_post(data, post_id)
+                        if found:
+                            target_post_dict = found
+                            break
+                    except Exception:
+                        pass
 
-            if is_video or intercepted_videos:
-                is_video = True
-                if not any(".mp4" in u.lower() for u in media_urls) and intercepted_videos:
-                    media_urls.append(intercepted_videos[0])
+            owner_username = extracted_username
+            caption = ""
+            is_video = False
+            media_items = []
 
-            media_urls = [u for u in media_urls if not u.startswith("blob:")]
-            media_urls = deduplicate_by_cdn_path(media_urls)
+            if target_post_dict:
+                logger.info(f"Successfully located structured post data for {post_id}.")
+                extracted = _extract_media_from_post_dict(target_post_dict)
+                owner_username = extracted["owner_username"] or extracted_username
+                caption = extracted["caption"]
+                is_video = extracted["is_video"]
+                media_items = extracted["media_items"]
+            else:
+                logger.warning(f"Structured post data not found in scripts for {post_id}. Attempting metadata/DOM fallback...")
+                # Fallback: Extract metadata from OpenGraph / Twitter meta tags
+                meta_info = await page.evaluate("""() => {
+                    const result = {};
+                    document.querySelectorAll('meta').forEach(m => {
+                        const prop = m.getAttribute('property') || m.getAttribute('name');
+                        const val = m.getAttribute('content');
+                        if (prop && val) result[prop] = val;
+                    });
+                    return result;
+                }""")
 
-            if not media_urls:
+                caption = meta_info.get("og:description") or meta_info.get("description") or meta_info.get("twitter:description") or ""
+                title = meta_info.get("og:title") or meta_info.get("twitter:title") or ""
+                # Parse title like "Name (@username) on Threads"
+                match_author = re.search(r"@([a-zA-Z0-9._]+)", title)
+                if match_author:
+                    owner_username = match_author.group(1)
+
+                # Find primary media from OpenGraph
+                og_image = meta_info.get("og:image") or meta_info.get("twitter:image")
+                og_video = meta_info.get("og:video")
+
+                if og_video and is_cdn_media_url(og_video):
+                    is_video = True
+                    media_items.append({"type": "video", "url": og_video})
+                elif og_image and is_cdn_media_url(og_image):
+                    media_items.append({"type": "image", "url": og_image})
+
+            if not media_items:
                 await browser.close()
                 raise RuntimeError(
                     "No media files found in this Threads post. "
-                    "The post may be private, deleted, or the account may require you to follow it."
+                    "The post may be text-only, private, deleted, or the account may require you to follow it."
                 )
 
             download_dir = os.path.abspath(os.path.join(self.get_downloads_dir(), post_id))
             os.makedirs(download_dir, exist_ok=True)
-            logger.info(f"Saving {len(media_urls)} file(s) to {download_dir}")
+            logger.info(f"Saving {len(media_items)} file(s) to {download_dir}")
 
             downloaded_files = []
-            for idx, url in enumerate(media_urls):
-                filename = build_filename(url, post_id, idx, suffix, is_video=is_video)
+            for idx, item in enumerate(media_items):
+                item_url = item["url"]
+                is_item_video = (item["type"] == "video")
+                filename = build_filename(item_url, post_id, idx, suffix, is_video=is_item_video)
                 filepath = os.path.join(download_dir, filename)
 
                 try:
-                    download_file(url, filepath, referer="https://www.threads.net/")
+                    download_file(item_url, filepath, referer="https://www.threads.net/")
                     downloaded_files.append(filename)
                 except Exception as e:
-                    logger.error(f"Failed to download asset {idx}: {e}")
+                    logger.error(f"Failed to download asset {idx} ({item_url[:60]}...): {e}")
 
             if not downloaded_files:
                 await browser.close()
