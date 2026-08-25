@@ -14,11 +14,13 @@ def download_file(url: str, filepath: str, referer: str = 'https://www.instagram
         "Referer": referer
     }
     logger.info(f"Downloading file from: {url[:80]}...")
+    logger.debug(f"Saving to: {filepath}")
     r = requests.get(url, headers=headers, stream=True, timeout=30)
     r.raise_for_status()
     with open(filepath, "wb") as f:
         for chunk in r.iter_content(chunk_size=8192):
             f.write(chunk)
+    logger.info(f"Saved file: {filepath}")
 
 def extract_url_digits(url: str) -> str:
     """Extracts the numerical digits segment of the filename from a CDN URL."""

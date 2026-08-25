@@ -317,7 +317,7 @@ class ThreadsDownloader(BasePlatformDownloader):
                 logger.warning(f"Could not resolve share URL, using as-is: {e}")
 
         extracted_username, post_id = self.extract_post_info(normalized_url)
-        logger.info(f"Downloading Threads post '{post_id}' by @{extracted_username}...")
+        logger.info(f"Downloading Threads post '{post_id}' by @{extracted_username} from {normalized_url}...")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -349,12 +349,15 @@ class ThreadsDownloader(BasePlatformDownloader):
 
             page.on("response", handle_response)
 
+            logger.info(f"Navigating to Threads post: {normalized_url}")
             await page.goto(normalized_url, wait_until="networkidle", timeout=30000)
+            logger.info(f"Page loaded. Current URL: {page.url}")
             await page.wait_for_timeout(1500)
 
             current_url = page.url
             if "login" in current_url or "/accounts/" in current_url:
                 await browser.close()
+                logger.error("Threads post requires login: %s", normalized_url)
                 raise RuntimeError(
                     "This Threads post requires a login to view. "
                     "Click 'Login to Threads (Optional)' to connect your account and try again."
@@ -368,6 +371,7 @@ class ThreadsDownloader(BasePlatformDownloader):
                 "account is private",
             )):
                 await browser.close()
+                logger.error("Threads account is private: @%s post %s", extracted_username, post_id)
                 raise RuntimeError(
                     f"This account is private. You must be following @{extracted_username} "
                     f"on the Threads account you logged in with to download their posts."
@@ -413,6 +417,7 @@ class ThreadsDownloader(BasePlatformDownloader):
                 caption = extracted["caption"]
                 is_video = extracted["is_video"]
                 media_items = extracted["media_items"]
+                logger.info(f"Extracted {len(media_items)} media item(s) from structured data for {post_id}.")
             else:
                 logger.warning(f"Structured post data not found in scripts for {post_id}. Attempting metadata/DOM fallback...")
                 # Fallback: Extract metadata from OpenGraph / Twitter meta tags
@@ -443,8 +448,11 @@ class ThreadsDownloader(BasePlatformDownloader):
                 elif og_image and is_cdn_media_url(og_image):
                     media_items.append({"type": "image", "url": og_image})
 
+                logger.info(f"Fallback extracted {len(media_items)} media item(s) from meta tags for {post_id}.")
+
             if not media_items:
                 await browser.close()
+                logger.error("No media files found for Threads post %s", post_id)
                 raise RuntimeError(
                     "No media files found in this Threads post. "
                     "The post may be text-only, private, deleted, or the account may require you to follow it."
@@ -465,8 +473,9 @@ class ThreadsDownloader(BasePlatformDownloader):
                     download_file(item_url, filepath, referer="https://www.threads.net/")
                     downloaded_files.append(filename)
                 except Exception as e:
-                    logger.error(f"Failed to download asset {idx} ({item_url[:60]}...): {e}")
+                    logger.error(f"Failed to download asset {idx} for {post_id} ({item_url[:60]}...): {e}")
 
+            logger.info(f"Downloaded {len(downloaded_files)}/{len(media_items)} assets for Threads post {post_id}.")
             if not downloaded_files:
                 await browser.close()
                 raise RuntimeError("Failed to download any of the media files found on this post.")

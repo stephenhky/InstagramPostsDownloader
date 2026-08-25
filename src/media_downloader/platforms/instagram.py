@@ -188,12 +188,14 @@ class InstagramDownloader(BasePlatformDownloader):
 
     async def download_post(self, post_url: str, suffix: str = None) -> dict:
         if not self.is_authenticated():
+            logger.error("Instagram account not connected. Please log in first.")
             raise RuntimeError("Instagram account not connected. Please log in first.")
             
         shortcode = self.extract_post_id(post_url)
-        logger.info(f"Downloading post {shortcode}...")
+        logger.info(f"Downloading Instagram post {shortcode} from {post_url}...")
 
         valid_digits = self._get_post_media_filenames_anonymous(shortcode)
+        logger.debug(f"Valid media digits for {shortcode}: {valid_digits}")
         intercepted_videos = []
         
         async with async_playwright() as p:
@@ -215,13 +217,16 @@ class InstagramDownloader(BasePlatformDownloader):
                     
             page.on("response", handle_response)
             
+            logger.info(f"Navigating to Instagram post: {post_url}")
             await page.goto(post_url, wait_until="load")
+            logger.info(f"Page loaded. Current URL: {page.url}")
             
             try:
                 await page.wait_for_selector(
                     "article img, video, input[name='username'], text='This Account is Private', text='This account is private', text='Sorry, this page'", 
                     timeout=15000
                 )
+                logger.info("Key post elements selector matched.")
             except Exception:
                 logger.warning("Timeout waiting for key post elements to load.")
                 
@@ -238,6 +243,7 @@ class InstagramDownloader(BasePlatformDownloader):
             if "accounts/login" in page.url or login_form_visible:
                 await browser.close()
                 self.logout_session()
+                logger.error("Instagram session invalid or expired for post %s", shortcode)
                 raise RuntimeError("Your Instagram session is invalid or has expired. Please disconnect and reconnect your account.")
 
             private_visible = False
@@ -250,6 +256,7 @@ class InstagramDownloader(BasePlatformDownloader):
 
             if private_visible:
                 await browser.close()
+                logger.error("Instagram account is private for post %s", shortcode)
                 raise RuntimeError("This account is private. You must follow this account on your connected Instagram profile to download its media.")
 
             main_article = page.locator("article").first
@@ -356,12 +363,14 @@ class InstagramDownloader(BasePlatformDownloader):
                 else:
                     logger.warning("No media URLs matched the Instaloader anonymous filter. Falling back to all scraped page elements.")
 
+            logger.info(f"Collected {len(media_urls)} media URLs for {shortcode} after filtering.")
             if not media_urls:
                 await browser.close()
                 raise RuntimeError("Could not locate any media files on this post. Instagram might be blocking access.")
 
             download_dir = os.path.abspath(os.path.join(self.get_downloads_dir(), shortcode))
             os.makedirs(download_dir, exist_ok=True)
+            logger.info(f"Download directory for {shortcode}: {download_dir}")
             
             logger.info(f"Found {len(media_urls)} media URLs. Starting download...")
             
@@ -374,8 +383,9 @@ class InstagramDownloader(BasePlatformDownloader):
                     download_file(url, filepath)
                     downloaded_files.append(filename)
                 except Exception as e:
-                    logger.error(f"Failed to download asset {idx}: {e}")
+                    logger.error(f"Failed to download asset {idx} for {shortcode}: {e}")
 
+            logger.info(f"Downloaded {len(downloaded_files)}/{len(media_urls)} assets for {shortcode}.")
             if not downloaded_files:
                 await browser.close()
                 raise RuntimeError("Failed to download any of the retrieved media URLs.")

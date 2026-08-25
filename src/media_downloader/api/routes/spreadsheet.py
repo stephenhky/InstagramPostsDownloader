@@ -71,7 +71,10 @@ async def api_download_pending(request: Request):
         suffix = None
         rectified_link = row.get("Rectified Link") or row.get("Rectified link") or url
 
+        logger.info(f"Processing pending row: platform={platform}, url={url}, rectified={rectified_link}")
+
         if not url:
+            logger.warning("Skipping row with empty URL.")
             results.append({"url": url, "success": False, "error": "Empty URL"})
             failed += 1
             continue
@@ -79,6 +82,7 @@ async def api_download_pending(request: Request):
         try:
             downloader = _get_downloader_for_platform(platform)
         except ValueError as ve:
+            logger.warning(f"Unsupported platform '{platform}' for url={url}: {ve}")
             results.append({"url": url, "success": False, "error": str(ve)})
             failed += 1
             continue
@@ -89,8 +93,13 @@ async def api_download_pending(request: Request):
             download_dir = downloader.get_downloads_dir()
             identifier = metadata.get("shortcode") or metadata.get("post_id", "unknown")
             post_dir = os.path.join(download_dir, identifier)
+            logger.info(f"Post {identifier} downloaded to {post_dir}")
+
             if os.path.exists(post_dir):
+                logger.info(f"Uploading {post_dir} to S3 prefix {s3_prefix}")
                 upload_directory_to_s3(post_dir, s3_prefix)
+            else:
+                logger.warning(f"Local post directory not found, skipping S3 upload: {post_dir}")
 
             save_spreadsheet_metadata(metadata)
 
