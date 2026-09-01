@@ -31,7 +31,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── Sync ──────────────────────────────────────────────────────
     syncBtn.addEventListener("click", async () => {
         statusCard.style.display = "flex";
-        statusCard.scrollIntoView({ behavior: "smooth" });
         statusTitle.textContent = "Syncing from Google Sheet...";
         statusSpinner.style.display = "block";
         progressBar.style.width = "25%";
@@ -158,12 +157,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Action buttons
             let actionsHtml = "";
+            const currentSuffix = post.suffix || meta.suffix || "";
 
             // Rename controls for S3 or RENAMED posts
             if (post.status === "S3" || post.status === "RENAMED") {
                 actionsHtml += `
                     <div class="card-action-row">
-                        <input type="text" class="rename-suffix-input" placeholder="Suffix (e.g. _vacation)" data-url="${escapeHTML(post.link)}">
+                        <input type="text" class="rename-suffix-input" placeholder="Suffix (e.g. _vacation)" value="${escapeHTML(currentSuffix)}" data-url="${escapeHTML(post.link)}">
                         <button type="button" class="card-btn card-btn-rename btn-rename-post" data-url="${escapeHTML(post.link)}">
                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -180,7 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 actionsHtml += `
                     <button type="button" class="card-btn card-btn-download btn-download-local" data-url="${escapeHTML(post.link)}">
                         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                             <polyline points="7 10 12 15 17 10"></polyline>
                             <line x1="12" y1="15" x2="12" y2="3"></line>
                         </svg>
@@ -201,6 +201,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
             }
 
+            const folderName = post.identifier || identifier || "";
+            const folderHtml = folderName ? `
+                <span class="card-folder-badge" title="Folder name: ${escapeHTML(folderName)}">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    ${escapeHTML(folderName)}
+                </span>
+            ` : "";
+
             card.innerHTML = `
                 <div class="card-thumbnail">
                     ${thumbnailHtml}
@@ -208,7 +218,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="card-details">
                     <div class="card-header-row">
                         <div class="card-usernames">${usernamesHtml}</div>
-                        <span class="status-badge ${statusClass}">${escapeHTML(post.status)}</span>
+                        <div class="card-header-meta">
+                            ${folderHtml}
+                            <span class="status-badge ${statusClass}">${escapeHTML(post.status)}</span>
+                        </div>
                     </div>
                     ${bioHtml}
                     <a href="${escapeHTML(post.link)}" target="_blank" rel="noopener" class="card-post-link">
@@ -239,7 +252,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".btn-rename-post").forEach(btn => {
             btn.addEventListener("click", async () => {
                 const url = btn.dataset.url;
-                const suffixInput = btn.closest(".card-action-row").querySelector(".rename-suffix-input");
+                const actionRow = btn.closest(".card-action-row");
+                const suffixInput = actionRow ? actionRow.querySelector(".rename-suffix-input") : null;
                 const suffix = suffixInput ? suffixInput.value.trim() : "";
 
                 if (!suffix) {
@@ -248,7 +262,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 btn.disabled = true;
-                btn.querySelector("span").textContent = "Renaming...";
+                const btnText = btn.querySelector("span");
+                const originalText = btnText ? btnText.textContent : "Rename";
+                if (btnText) btnText.textContent = "Renaming...";
 
                 try {
                     const res = await fetch("/api/spreadsheet/rename", {
@@ -258,17 +274,40 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                     const data = await res.json();
                     if (res.ok && data.success) {
-                        showStatus("Rename Complete", data.message, "var(--success-color)");
-                        syncBtn.click();
+                        const card = btn.closest(".spreadsheet-post-card");
+                        if (card) {
+                            // Update status badge
+                            const badge = card.querySelector(".status-badge");
+                            if (badge) {
+                                badge.className = "status-badge status-renamed";
+                                badge.textContent = "RENAMED";
+                            }
+                            // Update thumbnail image
+                            if (data.thumbnail_url) {
+                                const img = card.querySelector(".card-thumbnail img");
+                                if (img) {
+                                    img.src = data.thumbnail_url;
+                                }
+                            }
+                        }
+                        if (btnText) btnText.textContent = "Renamed ✓";
+                        btn.style.background = "rgba(34, 197, 94, 0.25)";
+                        btn.style.color = "rgb(74, 222, 128)";
+                        setTimeout(() => {
+                            btn.disabled = false;
+                            if (btnText) btnText.textContent = originalText;
+                            btn.style.background = "";
+                            btn.style.color = "";
+                        }, 2000);
                     } else {
                         alert("Rename failed: " + (data.detail || "Unknown error"));
                         btn.disabled = false;
-                        btn.querySelector("span").textContent = "Rename";
+                        if (btnText) btnText.textContent = originalText;
                     }
                 } catch (err) {
                     alert("Network error during rename.");
                     btn.disabled = false;
-                    btn.querySelector("span").textContent = "Rename";
+                    if (btnText) btnText.textContent = originalText;
                 }
             });
         });
@@ -279,7 +318,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const url = btn.dataset.url;
 
                 btn.disabled = true;
-                btn.querySelector("span").textContent = "Downloading...";
+                const btnText = btn.querySelector("span");
+                const originalText = btnText ? btnText.textContent : "Download";
+                if (btnText) btnText.textContent = "Downloading...";
 
                 try {
                     const res = await fetch("/api/spreadsheet/download", {
@@ -289,17 +330,52 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                     const data = await res.json();
                     if (res.ok && data.success) {
-                        showStatus("Download Complete", data.message, "var(--success-color)");
-                        syncBtn.click();
+                        const card = btn.closest(".spreadsheet-post-card");
+                        if (card) {
+                            // Update status badge
+                            const badge = card.querySelector(".status-badge");
+                            if (badge) {
+                                badge.className = "status-badge status-downloaded";
+                                badge.textContent = "DOWNLOADED";
+                            }
+                            // Replace card actions with Open Folder button
+                            const actionsContainer = card.querySelector(".card-actions");
+                            const folderBadge = card.querySelector(".card-folder-badge");
+                            const identifier = folderBadge ? folderBadge.textContent.trim() : "";
+                            if (actionsContainer) {
+                                actionsContainer.innerHTML = `
+                                    <button type="button" class="card-btn card-btn-folder btn-open-card-folder" data-identifier="${escapeHTML(identifier)}">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                        </svg>
+                                        <span>Open Folder</span>
+                                    </button>
+                                `;
+                                const openBtn = actionsContainer.querySelector(".btn-open-card-folder");
+                                if (openBtn) {
+                                    openBtn.addEventListener("click", async () => {
+                                        try {
+                                            await fetch("/api/spreadsheet/open-folder", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ identifier: openBtn.dataset.identifier }),
+                                            });
+                                        } catch (err) {
+                                            console.error("Failed to open folder", err);
+                                        }
+                                    });
+                                }
+                            }
+                        }
                     } else {
                         alert("Download failed: " + (data.detail || "Unknown error"));
                         btn.disabled = false;
-                        btn.querySelector("span").textContent = "Download";
+                        if (btnText) btnText.textContent = originalText;
                     }
                 } catch (err) {
                     alert("Network error during download.");
                     btn.disabled = false;
-                    btn.querySelector("span").textContent = "Download";
+                    if (btnText) btnText.textContent = originalText;
                 }
             });
         });

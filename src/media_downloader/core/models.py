@@ -39,6 +39,7 @@ class SpreadsheetPostItem(BaseModel):
     username: str
     platform: Literal["instagram", "threads"]
     status: Literal["PENDING", "S3", "RENAMED", "DOWNLOADED"]
+    suffix: Optional[str] = None
     comment: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     profile_bio: Optional[str] = None
@@ -47,6 +48,7 @@ class SpreadsheetPostItem(BaseModel):
     media_files: Optional[List[str]] = None
     thumbnail_url: Optional[str] = None
     s3_prefix: Optional[str] = None
+    identifier: Optional[str] = None
 
 class SpreadsheetSyncResponse(BaseModel):
     success: bool

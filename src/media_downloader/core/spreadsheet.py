@@ -171,8 +171,14 @@ def find_row_index_by_url(worksheet, url: str) -> Optional[int]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
-def update_row_fields(url: str, status: Optional[str] = None, username: Optional[str] = None, rectified_link: Optional[str] = None) -> bool:
-    """Update row cells (status, username, rectified_link) for the row matching URL."""
+def update_row_fields(
+    url: str,
+    status: Optional[str] = None,
+    username: Optional[str] = None,
+    rectified_link: Optional[str] = None,
+    suffix: Optional[str] = None,
+) -> bool:
+    """Update row cells (status, username, rectified_link, suffix) for the row matching URL."""
     spreadsheet = get_spreadsheet()
     worksheet = spreadsheet.get_worksheet(0)
     row_idx = find_row_index_by_url(worksheet, url)
@@ -185,15 +191,14 @@ def update_row_fields(url: str, status: Optional[str] = None, username: Optional
         worksheet.update_cell(row_idx, col_map["status"], status)
         logger.info(f"Updated status for {url} to {status}")
     if username and "username" in col_map:
-        current_user = worksheet.cell(row_idx, col_map["username"]).value
-        if not current_user:
-            worksheet.update_cell(row_idx, col_map["username"], username)
-            logger.info(f"Updated username for {url} to {username}")
+        worksheet.update_cell(row_idx, col_map["username"], username)
+        logger.info(f"Updated username for {url} to {username}")
     if rectified_link and "rectified_link" in col_map:
-        current_rect = worksheet.cell(row_idx, col_map["rectified_link"]).value
-        if not current_rect:
-            worksheet.update_cell(row_idx, col_map["rectified_link"], rectified_link)
-            logger.info(f"Updated rectified_link for {url} to {rectified_link}")
+        worksheet.update_cell(row_idx, col_map["rectified_link"], rectified_link)
+        logger.info(f"Updated rectified_link for {url} to {rectified_link}")
+    if suffix is not None and "suffix" in col_map:
+        worksheet.update_cell(row_idx, col_map["suffix"], suffix)
+        logger.info(f"Updated suffix for {url} to {suffix}")
     return True
 
 
@@ -247,6 +252,7 @@ _COLUMN_MAP = {
     "username": "username",
     "platform": "platform",
     "status": "status",
+    "suffix": "suffix",
     "comment": "comment",
 }
 
@@ -320,17 +326,14 @@ def rename_s3_media_files(s3_prefix: str, suffix: str) -> List[str]:
 
     # Update metadata.json in S3 with new filenames
     meta_key = f"{s3_prefix}/metadata.json" if not s3_prefix.endswith("/") else f"{s3_prefix}metadata.json"
+    updated_meta = None
     try:
         response = s3.get_object(Bucket=bucket, Key=meta_key)
         meta = json.loads(response["Body"].read().decode("utf-8"))
-        new_media_files = []
-        for f in meta.get("media_files", []):
-            base, ext = os.path.splitext(f)
-            if clean_suffix and not base.endswith(clean_suffix):
-                new_media_files.append(f"{base}{clean_suffix}{ext}")
-            else:
-                new_media_files.append(f)
-        meta["media_files"] = new_media_files
+        new_media_files = [os.path.basename(k) for k in new_keys if not k.endswith("metadata.json")]
+        if new_media_files:
+            meta["media_files"] = new_media_files
+        meta["suffix"] = clean_suffix
         s3.put_object(
             Bucket=bucket,
             Key=meta_key,
@@ -341,8 +344,30 @@ def rename_s3_media_files(s3_prefix: str, suffix: str) -> List[str]:
 
         # Also update local metadata cache
         save_spreadsheet_metadata(meta)
+        updated_meta = meta
     except Exception as e:
         logger.warning(f"Could not update metadata.json in S3: {e}")
+
+    # Also rename local files in downloads/<platform>/<identifier> if directory exists
+    try:
+        parts = s3_prefix.strip("/").split("/")
+        if len(parts) >= 3:
+            platform, identifier = parts[1], parts[2]
+            local_dir = os.path.join("downloads", platform, identifier)
+            if os.path.exists(local_dir):
+                for old_f in os.listdir(local_dir):
+                    if old_f == "metadata.json":
+                        continue
+                    b, e = os.path.splitext(old_f)
+                    if clean_suffix and not b.endswith(clean_suffix):
+                        new_local_f = f"{b}{clean_suffix}{e}"
+                        os.rename(os.path.join(local_dir, old_f), os.path.join(local_dir, new_local_f))
+                        logger.info(f"Renamed local file: {old_f} -> {new_local_f}")
+                if updated_meta:
+                    with open(os.path.join(local_dir, "metadata.json"), "w", encoding="utf-8") as f:
+                        json.dump(updated_meta, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Could not rename local files: {e}")
 
     return new_keys
 

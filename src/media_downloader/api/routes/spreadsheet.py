@@ -112,7 +112,8 @@ def _build_post_item(row: dict, metadata_list: list) -> dict:
         media_files = meta["media_files"]
         if identifier:
             local_dir = os.path.join("downloads", platform, identifier)
-            first_file = media_files[0]
+            image_candidates = [f for f in media_files if any(f.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"])]
+            first_file = image_candidates[0] if image_candidates else media_files[0]
             local_path = os.path.join(local_dir, first_file)
             if os.path.exists(local_path):
                 thumbnail_url = f"/downloads/{platform}/{identifier}/{first_file}"
@@ -122,6 +123,16 @@ def _build_post_item(row: dict, metadata_list: list) -> dict:
                     thumbnail_url = get_s3_media_url(s3_key)
                 except Exception:
                     pass
+
+    # Robust fallback: lookup directly from S3 if thumbnail_url is None
+    if not thumbnail_url and s3_prefix:
+        try:
+            s3_files = list_s3_post_files(s3_prefix)
+            first_img_s3 = next((f for f in s3_files if any(f.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"])), None)
+            if first_img_s3:
+                thumbnail_url = get_s3_media_url(first_img_s3)
+        except Exception:
+            pass
 
     status = nrow.get("status", "PENDING").upper().strip()
     if status not in ("PENDING", "S3", "RENAMED", "DOWNLOADED"):
@@ -147,6 +158,7 @@ def _build_post_item(row: dict, metadata_list: list) -> dict:
         "username": username,
         "platform": platform,
         "status": status,
+        "suffix": nrow.get("suffix") or (meta.get("suffix") if meta else None),
         "comment": nrow.get("comment"),
         "metadata": meta,
         "profile_bio": profile_bio,
@@ -155,6 +167,7 @@ def _build_post_item(row: dict, metadata_list: list) -> dict:
         "media_files": media_files,
         "thumbnail_url": thumbnail_url,
         "s3_prefix": s3_prefix,
+        "identifier": identifier,
     }
 
 
@@ -375,11 +388,26 @@ async def api_rename_post(request: Request, req: SpreadsheetRenameRequest):
         raise HTTPException(status_code=500, detail=f"S3 rename failed: {e}")
 
     try:
-        update_row_status(url, "RENAMED")
+        update_row_fields(url, status="RENAMED", suffix=suffix)
     except Exception as sheet_err:
         logger.warning(f"Failed to update sheet status for {url}: {sheet_err}")
 
-    return {"success": True, "new_keys": new_keys, "message": f"Renamed files with suffix '{suffix}'"}
+    # Build updated thumbnail URL from new keys
+    updated_thumb_url = None
+    first_img = next((k for k in new_keys if any(k.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"])), None)
+    if first_img:
+        try:
+            updated_thumb_url = get_s3_media_url(first_img)
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "new_keys": new_keys,
+        "suffix": suffix,
+        "thumbnail_url": updated_thumb_url,
+        "message": f"Renamed files with suffix '{suffix}'",
+    }
 
 
 @router.post("/download")
