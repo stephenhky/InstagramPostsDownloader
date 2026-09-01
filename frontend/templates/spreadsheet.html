@@ -67,15 +67,7 @@
                             <polyline points="23 4 23 10 17 10"></polyline>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                         </svg>
-                        <span>Sync from Google Sheets</span>
-                    </button>
-                    <button type="button" id="download-pending-btn" class="btn btn-secondary">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                        <span>Download Pending to S3</span>
+                        <span>Sync from Google Sheet</span>
                     </button>
                 </div>
 
@@ -92,33 +84,8 @@
                 </div>
             </section>
 
-            <!-- Posts Table Section -->
-            <section class="history-section">
-                <div class="history-header">
-                    <h2 class="section-title">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <polyline points="12 6 12 12 16 14"></polyline>
-                        </svg>
-                        All Posts
-                    </h2>
-                    <span id="posts-count" class="history-count">0 items</span>
-                </div>
-
-                <div id="posts-table-container" class="posts-table-container">
-                    <div class="no-history-state" id="no-posts">
-                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                            <line x1="3" y1="9" x2="21" y2="9"></line>
-                            <line x1="9" y1="21" x2="9" y2="9"></line>
-                        </svg>
-                        <p id="no-posts-text">Click "Sync from Google Sheets" to load posts.</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Gallery Section -->
-            <section class="history-section" id="gallery-section" style="display: none;">
+            <!-- Posts Gallery Section -->
+            <section class="history-section" id="gallery-section">
                 <div class="history-header">
                     <h2 class="section-title">
                         <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -126,19 +93,26 @@
                             <circle cx="8.5" cy="8.5" r="1.5"></circle>
                             <polyline points="21 15 16 10 5 21"></polyline>
                         </svg>
-                        Post Gallery
+                        All Posts
                     </h2>
-                    <span id="gallery-count" class="history-count">0 items</span>
+                    <span id="posts-count" class="history-count">0 items</span>
                 </div>
 
-                <div id="gallery-grid" class="history-grid">
-                    <!-- Gallery cards injected by JS -->
+                <div id="posts-gallery" class="spreadsheet-gallery">
+                    <div class="no-history-state" id="no-posts">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                        <p id="no-posts-text">Click "Sync from Google Sheet" to load posts.</p>
+                    </div>
                 </div>
             </section>
         </main>
 
         <footer class="app-footer">
-            <p>Media Downloader • Locally hosted Python Application</p>
+            <p>Media Downloader &bull; Locally hosted Python Application</p>
         </footer>
     </div>
 

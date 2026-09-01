@@ -131,28 +131,48 @@ def read_sheet_data() -> List[Dict[str, Any]]:
     return records
 
 
+def _get_column_indices(worksheet) -> Dict[str, int]:
+    """Get mapping of canonical lowercase column name to 1-based column index."""
+    headers = worksheet.row_values(1)
+    col_map = {}
+    for idx, h in enumerate(headers, start=1):
+        clean_h = h.strip().lower().replace(" ", "_")
+        col_map[clean_h] = idx
+    return col_map
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
 def find_row_index_by_url(worksheet, url: str) -> Optional[int]:
     """Find the 1-based row index for a given URL in the sheet."""
-    try:
-        url_col = worksheet.find("Link")
-    except IncorrectCellLabel:
-        try:
-            url_col = worksheet.find("link")
-        except IncorrectCellLabel:
-            return None
-    if url_col is None:
+    col_map = _get_column_indices(worksheet)
+    link_col = col_map.get("link")
+    if not link_col:
         return None
-    values = worksheet.col_values(url_col.col)
+
+    clean_target = url.strip().rstrip("/")
+    values = worksheet.col_values(link_col)
     for idx, val in enumerate(values, start=1):
-        if val == url:
+        if idx == 1:
+            continue
+        if val.strip().rstrip("/") == clean_target:
             return idx
+
+    # Also check rectified_link column if available
+    rect_col = col_map.get("rectified_link")
+    if rect_col:
+        rect_values = worksheet.col_values(rect_col)
+        for idx, val in enumerate(rect_values, start=1):
+            if idx == 1:
+                continue
+            if val.strip().rstrip("/") == clean_target:
+                return idx
+
     return None
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
-def update_row_status(url: str, new_status: str) -> bool:
-    """Update the Status cell for the row matching the given URL."""
+def update_row_fields(url: str, status: Optional[str] = None, username: Optional[str] = None, rectified_link: Optional[str] = None) -> bool:
+    """Update row cells (status, username, rectified_link) for the row matching URL."""
     spreadsheet = get_spreadsheet()
     worksheet = spreadsheet.get_worksheet(0)
     row_idx = find_row_index_by_url(worksheet, url)
@@ -160,21 +180,27 @@ def update_row_status(url: str, new_status: str) -> bool:
         logger.warning(f"Could not find row for URL: {url}")
         return False
 
-    try:
-        status_col = worksheet.find("Status")
-    except IncorrectCellLabel:
-        try:
-            status_col = worksheet.find("status")
-        except IncorrectCellLabel:
-            logger.warning("Could not find 'Status' column in sheet.")
-            return False
-    if status_col is None:
-        logger.warning("Could not find 'Status' column in sheet.")
-        return False
-
-    worksheet.update_cell(row_idx, status_col.col, new_status)
-    logger.info(f"Updated status for {url} to {new_status}")
+    col_map = _get_column_indices(worksheet)
+    if status and "status" in col_map:
+        worksheet.update_cell(row_idx, col_map["status"], status)
+        logger.info(f"Updated status for {url} to {status}")
+    if username and "username" in col_map:
+        current_user = worksheet.cell(row_idx, col_map["username"]).value
+        if not current_user:
+            worksheet.update_cell(row_idx, col_map["username"], username)
+            logger.info(f"Updated username for {url} to {username}")
+    if rectified_link and "rectified_link" in col_map:
+        current_rect = worksheet.cell(row_idx, col_map["rectified_link"]).value
+        if not current_rect:
+            worksheet.update_cell(row_idx, col_map["rectified_link"], rectified_link)
+            logger.info(f"Updated rectified_link for {url} to {rectified_link}")
     return True
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_is_retryable_gspread_error))
+def update_row_status(url: str, new_status: str) -> bool:
+    """Update the Status cell for the row matching the given URL."""
+    return update_row_fields(url, status=new_status)
 
 
 def save_spreadsheet_metadata(post_metadata: Dict[str, Any]) -> str:
@@ -208,3 +234,159 @@ def load_all_spreadsheet_metadata() -> List[Dict[str, Any]]:
         except Exception as e:
             logger.warning(f"Failed to read metadata file {filename}: {e}")
     return items
+
+
+# ── Column name normalization ──────────────────────────────────────────────────
+
+# Canonical column names mapped to lowercase keys for case-insensitive lookup
+_COLUMN_MAP = {
+    "datetime": "datetime",
+    "link": "link",
+    "rectified_link": "rectified_link",
+    "rectified link": "rectified_link",
+    "username": "username",
+    "platform": "platform",
+    "status": "status",
+    "comment": "comment",
+}
+
+
+def normalize_row_keys(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a spreadsheet row's keys to canonical lowercase names."""
+    normalized = {}
+    for key, value in row.items():
+        canonical = _COLUMN_MAP.get(key.strip().lower(), key.strip().lower())
+        normalized[canonical] = value
+    return normalized
+
+
+# ── S3 helpers ────────────────────────────────────────────────────────────────
+
+def list_s3_post_files(s3_prefix: str) -> List[str]:
+    """List all object keys under a given S3 prefix."""
+    s3 = _get_s3_client()
+    bucket = get_s3_bucket()
+    keys = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+        for obj in page.get("Contents", []):
+            keys.append(obj["Key"])
+    return keys
+
+
+def rename_s3_media_files(s3_prefix: str, suffix: str) -> List[str]:
+    """Rename media files in S3 by applying a suffix before the file extension.
+
+    Returns the list of new S3 keys after renaming.
+    """
+    import re as _re
+
+    s3 = _get_s3_client()
+    bucket = get_s3_bucket()
+    existing_keys = list_s3_post_files(s3_prefix)
+
+    new_keys = []
+    clean_suffix = _re.sub(r'[\\/*?:"<>|]', "", suffix)
+
+    for old_key in existing_keys:
+        filename = os.path.basename(old_key)
+        base, ext = os.path.splitext(filename)
+
+        # Skip metadata.json from renaming
+        if filename == "metadata.json":
+            new_keys.append(old_key)
+            continue
+
+        # Only add suffix if not already present
+        if clean_suffix and not base.endswith(clean_suffix):
+            new_base = f"{base}{clean_suffix}"
+        else:
+            new_base = base
+
+        new_filename = f"{new_base}{ext}"
+        new_key = old_key.rsplit("/", 1)[0] + "/" + new_filename
+
+        if new_key != old_key:
+            # Copy to new key, then delete old key
+            s3.copy_object(
+                Bucket=bucket,
+                CopySource={"Bucket": bucket, "Key": old_key},
+                Key=new_key,
+            )
+            s3.delete_object(Bucket=bucket, Key=old_key)
+            logger.info(f"Renamed S3 object: {old_key} -> {new_key}")
+
+        new_keys.append(new_key)
+
+    # Update metadata.json in S3 with new filenames
+    meta_key = f"{s3_prefix}/metadata.json" if not s3_prefix.endswith("/") else f"{s3_prefix}metadata.json"
+    try:
+        response = s3.get_object(Bucket=bucket, Key=meta_key)
+        meta = json.loads(response["Body"].read().decode("utf-8"))
+        new_media_files = []
+        for f in meta.get("media_files", []):
+            base, ext = os.path.splitext(f)
+            if clean_suffix and not base.endswith(clean_suffix):
+                new_media_files.append(f"{base}{clean_suffix}{ext}")
+            else:
+                new_media_files.append(f)
+        meta["media_files"] = new_media_files
+        s3.put_object(
+            Bucket=bucket,
+            Key=meta_key,
+            Body=json.dumps(meta, indent=4, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json",
+        )
+        logger.info(f"Updated metadata.json in S3 at {meta_key}")
+
+        # Also update local metadata cache
+        save_spreadsheet_metadata(meta)
+    except Exception as e:
+        logger.warning(f"Could not update metadata.json in S3: {e}")
+
+    return new_keys
+
+
+def download_post_from_s3(s3_prefix: str, local_target_dir: str) -> List[str]:
+    """Download all files from an S3 prefix to a local directory.
+
+    Returns the list of downloaded local file paths.
+    """
+    s3 = _get_s3_client()
+    bucket = get_s3_bucket()
+    os.makedirs(local_target_dir, exist_ok=True)
+
+    keys = list_s3_post_files(s3_prefix)
+    downloaded = []
+
+    s3_filenames = {os.path.basename(k) for k in keys}
+
+    # Clean up stale local media files that no longer exist in S3 (e.g. after rename)
+    for local_file in os.listdir(local_target_dir):
+        if local_file not in s3_filenames and local_file != "metadata.json":
+            try:
+                os.remove(os.path.join(local_target_dir, local_file))
+                logger.info(f"Removed stale local file: {local_file}")
+            except Exception as e:
+                logger.warning(f"Failed to remove stale file {local_file}: {e}")
+
+    for key in keys:
+        filename = os.path.basename(key)
+        local_path = os.path.join(local_target_dir, filename)
+        s3.download_file(bucket, key, local_path)
+        logger.info(f"Downloaded S3 object {key} to {local_path}")
+        downloaded.append(local_path)
+
+    return downloaded
+
+
+def get_s3_media_url(s3_key: str) -> str:
+    """Generate a pre-signed URL for an S3 object (valid for 1 hour)."""
+    s3 = _get_s3_client()
+    bucket = get_s3_bucket()
+    url = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": s3_key},
+        ExpiresIn=3600,
+    )
+    return url

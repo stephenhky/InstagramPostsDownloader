@@ -82,6 +82,7 @@ def _extract_media_from_post_dict(post_dict: dict) -> dict:
         "is_video": has_video,
         "taken_at": taken_at,
         "media_items": media_items,
+        "profile_bio": user.get("biography", "") or "",
     }
 
 
@@ -409,6 +410,8 @@ class ThreadsDownloader(BasePlatformDownloader):
             caption = ""
             is_video = False
             media_items = []
+            profile_bio = ""
+            profile_usernames = [extracted_username]
 
             if target_post_dict:
                 logger.info(f"Successfully located structured post data for {post_id}.")
@@ -417,6 +420,8 @@ class ThreadsDownloader(BasePlatformDownloader):
                 caption = extracted["caption"]
                 is_video = extracted["is_video"]
                 media_items = extracted["media_items"]
+                profile_bio = extracted.get("profile_bio", "")
+                profile_usernames = [owner_username]
                 logger.info(f"Extracted {len(media_items)} media item(s) from structured data for {post_id}.")
             else:
                 logger.warning(f"Structured post data not found in scripts for {post_id}. Attempting metadata/DOM fallback...")
@@ -449,6 +454,34 @@ class ThreadsDownloader(BasePlatformDownloader):
                     media_items.append({"type": "image", "url": og_image})
 
                 logger.info(f"Fallback extracted {len(media_items)} media item(s) from meta tags for {post_id}.")
+
+            if not profile_bio and owner_username:
+                try:
+                    profile_page = await context.new_page()
+                    await profile_page.goto(f"https://www.threads.net/@{owner_username}", wait_until="networkidle", timeout=15000)
+                    await profile_page.wait_for_timeout(1000)
+                    p_meta = await profile_page.evaluate("""() => {
+                        const res = {};
+                        document.querySelectorAll('meta').forEach(m => {
+                            const k = m.getAttribute('property') || m.getAttribute('name');
+                            const v = m.getAttribute('content');
+                            if (k && v) res[k] = v;
+                        });
+                        return res;
+                    }""")
+                    desc = p_meta.get("description") or p_meta.get("og:description") or ""
+                    m_bio = re.search(r'Threads\s*•\s*(.*?)\s*See the latest conversations', desc, re.DOTALL)
+                    if m_bio:
+                        profile_bio = m_bio.group(1).strip()
+                    elif "•" in desc:
+                        parts = desc.split("•")
+                        if len(parts) >= 3:
+                            profile_bio = parts[-1].split("See the latest")[0].strip()
+                    elif desc:
+                        profile_bio = desc.strip()
+                    await profile_page.close()
+                except Exception as e:
+                    logger.warning(f"Could not fetch Threads profile bio for @{owner_username}: {e}")
 
             if not media_items:
                 await browser.close()
@@ -483,12 +516,16 @@ class ThreadsDownloader(BasePlatformDownloader):
             post_metadata = {
                 "post_id": post_id,
                 "url": f"https://www.threads.net/@{owner_username}/post/{post_id}",
+                "original_link": post_url,
+                "rectified_link": normalized_url,
                 "owner_username": owner_username,
                 "caption": caption,
                 "is_video": is_video,
                 "date_utc": datetime.utcnow().isoformat(),
                 "downloaded_at": datetime.utcnow().isoformat(),
                 "media_files": downloaded_files,
+                "profile_bio": profile_bio,
+                "profile_usernames": profile_usernames,
             }
 
             metadata_file = write_metadata(download_dir, post_metadata)

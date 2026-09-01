@@ -90,10 +90,10 @@ async def inject_platform(request: Request, call_next):
 
 
 # ── API routes ─────────────────────────────────────────────────────────────────
-app.include_router(auth.router,     prefix="/api/{platform}/auth", tags=["auth"])
-app.include_router(download.router, prefix="/api/{platform}",      tags=["download"])
-app.include_router(history.router,  prefix="/api/{platform}",      tags=["history"])
 app.include_router(spreadsheet.router, prefix="/api/spreadsheet",   tags=["spreadsheet"])
+app.include_router(auth.router,        prefix="/api/{platform}/auth", tags=["auth"])
+app.include_router(download.router,    prefix="/api/{platform}",      tags=["download"])
+app.include_router(history.router,     prefix="/api/{platform}",      tags=["history"])
 
 
 # ── Static mounts — use absolute paths so they never depend on CWD ────────────

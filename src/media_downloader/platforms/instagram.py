@@ -268,21 +268,84 @@ class InstagramDownloader(BasePlatformDownloader):
                 else:
                     main_article = page.locator("body")
 
-            owner_username = "instagram_user"
-            try:
-                username_loc = main_article.locator("header a[href^='/']").first
-                if await username_loc.is_visible():
-                    owner_username = (await username_loc.text_content()).strip()
-            except Exception as e:
-                logger.warning(f"Could not find username link: {e}")
+            # Extract meta tags for username, caption, and title
+            meta_info = await page.evaluate("""() => {
+                const res = {};
+                document.querySelectorAll('meta').forEach(m => {
+                    const k = m.getAttribute('property') || m.getAttribute('name');
+                    const v = m.getAttribute('content');
+                    if (k && v) res[k] = v;
+                });
+                return res;
+            }""")
 
+            og_desc = meta_info.get("og:description") or meta_info.get("description") or ""
+            og_title = meta_info.get("og:title") or ""
+            page_title = await page.title()
+
+            owner_username = "instagram_user"
             caption = ""
-            try:
-                h1_loc = main_article.locator("h1").first
-                if await h1_loc.is_visible():
-                    caption = (await h1_loc.text_content()).strip()
-            except Exception as e:
-                logger.warning(f"Could not find caption: {e}")
+
+            # 1. Try regex from og_desc: '... - username on date: "caption"'
+            m = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on\s+[^:]+:\s*\"(.*?)\"', og_desc, re.DOTALL)
+            if m:
+                owner_username = m.group(1)
+                caption = m.group(2)
+            else:
+                m_user = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on', og_desc)
+                if m_user:
+                    owner_username = m_user.group(1)
+
+            if owner_username == "instagram_user":
+                m_title = re.search(r'@([a-zA-Z0-9._]+)', page_title)
+                if m_title:
+                    owner_username = m_title.group(1)
+
+            if owner_username == "instagram_user":
+                try:
+                    username_loc = main_article.locator("header a[href^='/']").first
+                    if await username_loc.is_visible():
+                        owner_username = (await username_loc.text_content()).strip()
+                except Exception as e:
+                    logger.warning(f"Could not find username link: {e}")
+
+            if not caption:
+                m_cap = re.search(r':\s*\"(.*?)\"', og_title, re.DOTALL)
+                if m_cap:
+                    caption = m_cap.group(1)
+                else:
+                    try:
+                        h1_loc = main_article.locator("h1").first
+                        if await h1_loc.is_visible():
+                            caption = (await h1_loc.text_content()).strip()
+                    except Exception as e:
+                        logger.warning(f"Could not find caption: {e}")
+
+            profile_bio = ""
+            profile_usernames = [owner_username]
+            if owner_username and owner_username != "instagram_user":
+                try:
+                    profile_page = await context.new_page()
+                    await profile_page.goto(f"https://www.instagram.com/{owner_username}/", wait_until="load", timeout=15000)
+                    await profile_page.wait_for_timeout(1000)
+                    p_meta = await profile_page.evaluate("""() => {
+                        const res = {};
+                        document.querySelectorAll('meta').forEach(m => {
+                            const k = m.getAttribute('property') || m.getAttribute('name');
+                            const v = m.getAttribute('content');
+                            if (k && v) res[k] = v;
+                        });
+                        return res;
+                    }""")
+                    p_desc = p_meta.get("description") or p_meta.get("og:description") or ""
+                    m_bio = re.search(r':\s*\"(.*?)\"$', p_desc, re.DOTALL)
+                    if m_bio:
+                        profile_bio = m_bio.group(1).strip()
+                    elif p_desc:
+                        profile_bio = p_desc.strip()
+                    await profile_page.close()
+                except Exception as e:
+                    logger.warning(f"Could not fetch profile bio for @{owner_username}: {e}")
 
             media_urls = []
             is_video = False
@@ -401,7 +464,9 @@ class InstagramDownloader(BasePlatformDownloader):
                 "is_video": is_video,
                 "date_utc": datetime.utcnow().isoformat(),
                 "downloaded_at": datetime.utcnow().isoformat(),
-                "media_files": downloaded_files
+                "media_files": downloaded_files,
+                "profile_bio": profile_bio,
+                "profile_usernames": profile_usernames,
             }
 
             metadata_file = write_metadata(download_dir, post_metadata)
