@@ -16,10 +16,15 @@ def is_authenticated(session_file: str, cookie_names: set[str] = None, domains: 
         with open(session_file, "r", encoding="utf-8") as f:
             state = json.load(f)
         cookies = state.get("cookies", [])
+        import time
+        now = time.time()
         for c in cookies:
             domain = c.get("domain", "").lstrip(".")
             if c.get("name") in cookie_names:
                 if domains is None or any(d in domain for d in domains):
+                    expires = c.get("expires", -1)
+                    if expires is not None and expires > 0 and expires < now:
+                        continue
                     return True
         return False
     except Exception as e:

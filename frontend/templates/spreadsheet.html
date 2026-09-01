@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstaDrop | Spreadsheet Manager</title>
+    <meta name="description" content="Manage Instagram and Threads posts via Google Sheets.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="platform-instagram">
+    <!-- Background Decorators -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon platform-icon-ig" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
+                <h1 id="app-title">InstaDrop <span class="batch-label">Spreadsheet</span></h1>
+            </div>
+            <p class="tagline" id="app-tagline">Manage posts from your Google Sheet.</p>
+            <nav class="page-nav">
+                <a href="/" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Single Download
+                </a>
+                <a href="/batch" class="nav-link">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Batch Download
+                </a>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Control Panel -->
+            <section class="card control-card">
+                <h2 class="section-title">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="3" y1="9" x2="21" y2="9"></line>
+                        <line x1="9" y1="21" x2="9" y2="9"></line>
+                    </svg>
+                    Google Sheet Control
+                </h2>
+
+                <div class="action-buttons" style="margin-bottom: 20px;">
+                    <button type="button" id="sync-btn" class="btn btn-primary">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        <span>Sync from Google Sheet</span>
+                    </button>
+                </div>
+
+                <!-- Status Card -->
+                <div id="status-card" class="status-card" style="display: none;">
+                    <div class="status-header">
+                        <h3 id="status-title">Processing...</h3>
+                        <div id="status-spinner" class="spinner"></div>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div id="progress-bar" class="progress-bar-fill"></div>
+                    </div>
+                    <p id="status-message">Please wait...</p>
+                </div>
+            </section>
+
+            <!-- Posts Gallery Section -->
+            <section class="history-section" id="gallery-section">
+                <div class="history-header">
+                    <h2 class="section-title">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        All Posts
+                    </h2>
+                    <span id="posts-count" class="history-count">0 items</span>
+                </div>
+
+                <div id="posts-gallery" class="spreadsheet-gallery">
+                    <div class="no-history-state" id="no-posts">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                        <p id="no-posts-text">Click "Sync from Google Sheet" to load posts.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>Media Downloader &bull; Locally hosted Python Application</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/spreadsheet.js"></script>
+</body>
+</html>

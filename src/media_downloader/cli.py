@@ -57,13 +57,20 @@ def main():
 
     server_process = None
     try:
+        env = os.environ.copy()
+        src_dir = os.path.join(project_dir, "src")
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            src_dir if not existing_pythonpath else f"{src_dir}{os.pathsep}{existing_pythonpath}"
+        )
+
         server_process = subprocess.Popen([
             venv_python, "-m", "uvicorn",
             "media_downloader.api.app:app",
             "--host", host,
             "--port", str(port),
             "--reload",
-        ])
+        ], env=env)
 
         time.sleep(2)
 

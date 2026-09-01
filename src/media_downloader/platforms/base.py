@@ -29,3 +29,7 @@ class BasePlatformDownloader(ABC):
     @abstractmethod
     def logout_session(self) -> bool:
         ...
+
+    @abstractmethod
+    async def start_login_flow(self) -> bool:
+        ...

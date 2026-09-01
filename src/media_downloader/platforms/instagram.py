@@ -37,29 +37,74 @@ class InstagramDownloader(BasePlatformDownloader):
             return ""
         return match.group(1)
 
+    def __init__(self):
+        self._login_lock = asyncio.Lock()
+        self._login_in_progress = False
+
     def is_authenticated(self) -> bool:
-        return is_authenticated(self.get_session_file())
+        return is_authenticated(
+            self.get_session_file(),
+            cookie_names={"sessionid", "ds_user_id"},
+            domains={"instagram.com"}
+        )
 
     def logout_session(self) -> bool:
         return logout_session(self.get_session_file())
 
     async def start_login_flow(self) -> bool:
+        if self._login_in_progress:
+            logger.info("Instagram login already in progress.")
+            return False
+
+        async with self._login_lock:
+            self._login_in_progress = True
+            try:
+                return await self._login_flow_impl()
+            finally:
+                self._login_in_progress = False
+
+    async def _login_flow_impl(self) -> bool:
         os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
-        logger.info("Starting interactive headed login flow...")
-        
+        logger.info("Starting interactive headed login flow for Instagram...")
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
             context = await browser.new_context()
             page = await context.new_page()
+
+            async def inject_banner(pg):
+                try:
+                    await pg.evaluate("""() => {
+                        if (document.getElementById('ig-login-banner')) return;
+                        const b = document.createElement('div');
+                        b.id = 'ig-login-banner';
+                        b.style.cssText = [
+                            'position:fixed','top:0','left:0','right:0','z-index:2147483647',
+                            'background:#e1306c','color:#fff','padding:10px 20px',
+                            'text-align:center','font:600 14px/1.4 system-ui,sans-serif',
+                            'box-shadow:0 2px 8px rgba(0,0,0,.25)'
+                        ].join(';');
+                        b.textContent = 'InstaDrop — Log in to Instagram below. Once logged in, session will save automatically.';
+                        document.body.prepend(b);
+                    }""")
+                except Exception:
+                    pass
+
+            page.on("load", lambda _: asyncio.ensure_future(inject_banner(page)))
             await page.goto(self.login_url)
-            
+            await inject_banner(page)
+
             logged_in = False
-            timeout_seconds = 180
+            timeout_seconds = 240
             start_time = time.time()
-            
+
             logger.info("Please log in manually on the browser window.")
-            
+
             while time.time() - start_time < timeout_seconds:
+                if page.is_closed():
+                    logger.warning("Browser window was closed by the user.")
+                    break
+
                 try:
                     cookies = await context.cookies()
                     if any(c['name'] == 'sessionid' for c in cookies):
@@ -67,30 +112,44 @@ class InstagramDownloader(BasePlatformDownloader):
                         break
                 except Exception as e:
                     logger.warning(f"Error checking cookies: {e}")
-                    
-                if page.is_closed():
-                    logger.warning("Browser window was closed by the user.")
-                    break
-                    
+
                 await asyncio.sleep(2)
-                
+
             if logged_in:
-                logger.info("Login detected. Waiting 4 seconds for session cookies and storage to settle...")
-                await page.wait_for_timeout(4000) # Wait for storage updates
-                
-                state = await context.storage_state()
-                save_state_atomic(state, self.get_session_file())
-                logger.info(f"Authentication state saved to {self.get_session_file()}")
-                success = True
+                logger.info("Login detected. Waiting 3 seconds for session cookies and storage to settle...")
+                try:
+                    await page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+
+                try:
+                    state = await context.storage_state()
+                    save_state_atomic(state, self.get_session_file())
+                    logger.info(f"Authentication state saved to {self.get_session_file()}")
+                    success = True
+                except Exception as e:
+                    logger.error(f"Error saving storage state: {e}")
+                    success = False
             else:
-                logger.error("Authentication timed out or browser was closed before completion.")
-                success = False
-                
+                # If window was closed, still try to save if session cookies exist
+                try:
+                    cookies = await context.cookies()
+                    if any(c['name'] == 'sessionid' for c in cookies):
+                        state = await context.storage_state()
+                        save_state_atomic(state, self.get_session_file())
+                        logger.info(f"Session saved from closed window: {self.get_session_file()}")
+                        success = True
+                    else:
+                        logger.warning("No sessionid cookie found.")
+                        success = False
+                except Exception:
+                    success = False
+
             try:
                 await browser.close()
             except Exception:
                 pass
-                
+
             return success
 
     def _get_post_media_filenames_anonymous(self, shortcode: str) -> list:
@@ -129,12 +188,14 @@ class InstagramDownloader(BasePlatformDownloader):
 
     async def download_post(self, post_url: str, suffix: str = None) -> dict:
         if not self.is_authenticated():
+            logger.error("Instagram account not connected. Please log in first.")
             raise RuntimeError("Instagram account not connected. Please log in first.")
             
         shortcode = self.extract_post_id(post_url)
-        logger.info(f"Downloading post {shortcode}...")
+        logger.info(f"Downloading Instagram post {shortcode} from {post_url}...")
 
         valid_digits = self._get_post_media_filenames_anonymous(shortcode)
+        logger.debug(f"Valid media digits for {shortcode}: {valid_digits}")
         intercepted_videos = []
         
         async with async_playwright() as p:
@@ -156,13 +217,16 @@ class InstagramDownloader(BasePlatformDownloader):
                     
             page.on("response", handle_response)
             
+            logger.info(f"Navigating to Instagram post: {post_url}")
             await page.goto(post_url, wait_until="load")
+            logger.info(f"Page loaded. Current URL: {page.url}")
             
             try:
                 await page.wait_for_selector(
                     "article img, video, input[name='username'], text='This Account is Private', text='This account is private', text='Sorry, this page'", 
                     timeout=15000
                 )
+                logger.info("Key post elements selector matched.")
             except Exception:
                 logger.warning("Timeout waiting for key post elements to load.")
                 
@@ -179,6 +243,7 @@ class InstagramDownloader(BasePlatformDownloader):
             if "accounts/login" in page.url or login_form_visible:
                 await browser.close()
                 self.logout_session()
+                logger.error("Instagram session invalid or expired for post %s", shortcode)
                 raise RuntimeError("Your Instagram session is invalid or has expired. Please disconnect and reconnect your account.")
 
             private_visible = False
@@ -191,6 +256,7 @@ class InstagramDownloader(BasePlatformDownloader):
 
             if private_visible:
                 await browser.close()
+                logger.error("Instagram account is private for post %s", shortcode)
                 raise RuntimeError("This account is private. You must follow this account on your connected Instagram profile to download its media.")
 
             main_article = page.locator("article").first
@@ -202,21 +268,84 @@ class InstagramDownloader(BasePlatformDownloader):
                 else:
                     main_article = page.locator("body")
 
-            owner_username = "instagram_user"
-            try:
-                username_loc = main_article.locator("header a[href^='/']").first
-                if await username_loc.is_visible():
-                    owner_username = (await username_loc.text_content()).strip()
-            except Exception as e:
-                logger.warning(f"Could not find username link: {e}")
+            # Extract meta tags for username, caption, and title
+            meta_info = await page.evaluate("""() => {
+                const res = {};
+                document.querySelectorAll('meta').forEach(m => {
+                    const k = m.getAttribute('property') || m.getAttribute('name');
+                    const v = m.getAttribute('content');
+                    if (k && v) res[k] = v;
+                });
+                return res;
+            }""")
 
+            og_desc = meta_info.get("og:description") or meta_info.get("description") or ""
+            og_title = meta_info.get("og:title") or ""
+            page_title = await page.title()
+
+            owner_username = "instagram_user"
             caption = ""
-            try:
-                h1_loc = main_article.locator("h1").first
-                if await h1_loc.is_visible():
-                    caption = (await h1_loc.text_content()).strip()
-            except Exception as e:
-                logger.warning(f"Could not find caption: {e}")
+
+            # 1. Try regex from og_desc: '... - username on date: "caption"'
+            m = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on\s+[^:]+:\s*\"(.*?)\"', og_desc, re.DOTALL)
+            if m:
+                owner_username = m.group(1)
+                caption = m.group(2)
+            else:
+                m_user = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on', og_desc)
+                if m_user:
+                    owner_username = m_user.group(1)
+
+            if owner_username == "instagram_user":
+                m_title = re.search(r'@([a-zA-Z0-9._]+)', page_title)
+                if m_title:
+                    owner_username = m_title.group(1)
+
+            if owner_username == "instagram_user":
+                try:
+                    username_loc = main_article.locator("header a[href^='/']").first
+                    if await username_loc.is_visible():
+                        owner_username = (await username_loc.text_content()).strip()
+                except Exception as e:
+                    logger.warning(f"Could not find username link: {e}")
+
+            if not caption:
+                m_cap = re.search(r':\s*\"(.*?)\"', og_title, re.DOTALL)
+                if m_cap:
+                    caption = m_cap.group(1)
+                else:
+                    try:
+                        h1_loc = main_article.locator("h1").first
+                        if await h1_loc.is_visible():
+                            caption = (await h1_loc.text_content()).strip()
+                    except Exception as e:
+                        logger.warning(f"Could not find caption: {e}")
+
+            profile_bio = ""
+            profile_usernames = [owner_username]
+            if owner_username and owner_username != "instagram_user":
+                try:
+                    profile_page = await context.new_page()
+                    await profile_page.goto(f"https://www.instagram.com/{owner_username}/", wait_until="load", timeout=15000)
+                    await profile_page.wait_for_timeout(1000)
+                    p_meta = await profile_page.evaluate("""() => {
+                        const res = {};
+                        document.querySelectorAll('meta').forEach(m => {
+                            const k = m.getAttribute('property') || m.getAttribute('name');
+                            const v = m.getAttribute('content');
+                            if (k && v) res[k] = v;
+                        });
+                        return res;
+                    }""")
+                    p_desc = p_meta.get("description") or p_meta.get("og:description") or ""
+                    m_bio = re.search(r':\s*\"(.*?)\"$', p_desc, re.DOTALL)
+                    if m_bio:
+                        profile_bio = m_bio.group(1).strip()
+                    elif p_desc:
+                        profile_bio = p_desc.strip()
+                    await profile_page.close()
+                except Exception as e:
+                    logger.warning(f"Could not fetch profile bio for @{owner_username}: {e}")
 
             media_urls = []
             is_video = False
@@ -297,12 +426,14 @@ class InstagramDownloader(BasePlatformDownloader):
                 else:
                     logger.warning("No media URLs matched the Instaloader anonymous filter. Falling back to all scraped page elements.")
 
+            logger.info(f"Collected {len(media_urls)} media URLs for {shortcode} after filtering.")
             if not media_urls:
                 await browser.close()
                 raise RuntimeError("Could not locate any media files on this post. Instagram might be blocking access.")
 
             download_dir = os.path.abspath(os.path.join(self.get_downloads_dir(), shortcode))
             os.makedirs(download_dir, exist_ok=True)
+            logger.info(f"Download directory for {shortcode}: {download_dir}")
             
             logger.info(f"Found {len(media_urls)} media URLs. Starting download...")
             
@@ -315,8 +446,9 @@ class InstagramDownloader(BasePlatformDownloader):
                     download_file(url, filepath)
                     downloaded_files.append(filename)
                 except Exception as e:
-                    logger.error(f"Failed to download asset {idx}: {e}")
+                    logger.error(f"Failed to download asset {idx} for {shortcode}: {e}")
 
+            logger.info(f"Downloaded {len(downloaded_files)}/{len(media_urls)} assets for {shortcode}.")
             if not downloaded_files:
                 await browser.close()
                 raise RuntimeError("Failed to download any of the retrieved media URLs.")
@@ -332,7 +464,9 @@ class InstagramDownloader(BasePlatformDownloader):
                 "is_video": is_video,
                 "date_utc": datetime.utcnow().isoformat(),
                 "downloaded_at": datetime.utcnow().isoformat(),
-                "media_files": downloaded_files
+                "media_files": downloaded_files,
+                "profile_bio": profile_bio,
+                "profile_usernames": profile_usernames,
             }
 
             metadata_file = write_metadata(download_dir, post_metadata)

@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from media_downloader.core.config import settings
 from media_downloader.platforms.instagram import InstagramDownloader
 from media_downloader.platforms.threads import ThreadsDownloader
-from media_downloader.api.routes import auth, download, history
+from media_downloader.api.routes import auth, download, history, spreadsheet
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -20,7 +20,16 @@ _THIS_FILE = os.path.abspath(__file__)            # .../src/media_downloader/api
 _API_DIR   = os.path.dirname(_THIS_FILE)          # .../src/media_downloader/api/
 _PKG_DIR   = os.path.dirname(_API_DIR)            # .../src/media_downloader/
 _SRC_DIR   = os.path.dirname(_PKG_DIR)            # .../src/
-PROJECT_ROOT = os.path.dirname(_SRC_DIR)          # project root (contains pyproject.toml)
+_PACKAGE_PROJECT_ROOT = os.path.dirname(_SRC_DIR) # project root (contains pyproject.toml)
+
+# Prefer CWD if it looks like a project root (has pyproject.toml or frontend/),
+# otherwise fall back to the package-relative path. This avoids resolving to
+# site-packages when the app is installed in a virtualenv.
+_CWD = os.getcwd()
+if os.path.exists(os.path.join(_CWD, "pyproject.toml")) or os.path.exists(os.path.join(_CWD, "frontend")):
+    PROJECT_ROOT = _CWD
+else:
+    PROJECT_ROOT = _PACKAGE_PROJECT_ROOT
 
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
 
@@ -69,6 +78,8 @@ async def inject_platform(request: Request, call_next):
             platform = parts[2]
             if platform in platform_downloaders:
                 request.state.platform = platform
+            elif platform == "spreadsheet":
+                pass
             else:
                 return HTMLResponse(
                     content=f'{{"detail":"Unknown platform: {platform}"}}',
@@ -79,9 +90,10 @@ async def inject_platform(request: Request, call_next):
 
 
 # ── API routes ─────────────────────────────────────────────────────────────────
-app.include_router(auth.router,     prefix="/api/{platform}/auth", tags=["auth"])
-app.include_router(download.router, prefix="/api/{platform}",      tags=["download"])
-app.include_router(history.router,  prefix="/api/{platform}",      tags=["history"])
+app.include_router(spreadsheet.router, prefix="/api/spreadsheet",   tags=["spreadsheet"])
+app.include_router(auth.router,        prefix="/api/{platform}/auth", tags=["auth"])
+app.include_router(download.router,    prefix="/api/{platform}",      tags=["download"])
+app.include_router(history.router,     prefix="/api/{platform}",      tags=["history"])
 
 
 # ── Static mounts — use absolute paths so they never depend on CWD ────────────
@@ -113,6 +125,14 @@ async def read_batch():
     if os.path.exists(batch_path):
         return FileResponse(batch_path)
     return HTMLResponse(f"<h1>Template not found: {batch_path}</h1>", status_code=404)
+
+
+@app.get("/spreadsheet")
+async def read_spreadsheet():
+    spreadsheet_path = os.path.join(FRONTEND_DIR, "templates", "spreadsheet.html")
+    if os.path.exists(spreadsheet_path):
+        return FileResponse(spreadsheet_path)
+    return HTMLResponse(f"<h1>Template not found: {spreadsheet_path}</h1>", status_code=404)
 
 
 if __name__ == "__main__":
