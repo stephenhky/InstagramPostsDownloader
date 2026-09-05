@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class InstagramDownloader(BasePlatformDownloader):
     platform_name = "instagram"
     url_pattern = re.compile(
-        r"(?:(?:https?://)?(?:www\.)?instagram\.com)?/?(?:[^/]+/)?(?:p|reel|tv)/([^/?#&]+)"
+        r"(?:(?:https?://)?(?:www\.)?instagram\.com)?/?(?:[^/]+/)?(?:p|reels?|tv)/([^/?#&]+)"
     )
     login_url = "https://www.instagram.com/accounts/login/"
 
@@ -33,7 +33,7 @@ class InstagramDownloader(BasePlatformDownloader):
         match = self.url_pattern.search(url)
         if not match:
             if raise_error:
-                raise ValueError("Invalid Instagram URL pattern. Must be a /p/, /reel/, or /tv/ URL.")
+                raise ValueError("Invalid Instagram URL pattern. Must be a /p/, /reel/, /reels/, or /tv/ URL.")
             return ""
         return match.group(1)
 

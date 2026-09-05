@@ -66,7 +66,7 @@ def _find_metadata_for_row(nrow: dict, metadata_list: list) -> Optional[dict]:
     # 2. Extract identifier from link / rect_link
     post_id = None
     if platform == "instagram":
-        m = re.search(r"/(?:p|reel|tv)/([^/?#&]+)", link) or (re.search(r"/(?:p|reel|tv)/([^/?#&]+)", rect_link) if rect_link else None)
+        m = re.search(r"/(?:p|reels?|tv)/([^/?#&]+)", link) or (re.search(r"/(?:p|reels?|tv)/([^/?#&]+)", rect_link) if rect_link else None)
         if m:
             post_id = m.group(1)
     elif platform == "threads":
