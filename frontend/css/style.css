@@ -1534,6 +1534,22 @@ body.platform-threads .result-active .result-icon {
     background: rgba(59, 130, 246, 0.25);
 }
 
+.rename-suffix-input.suffix-readonly {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary, rgba(255, 255, 255, 0.75));
+    cursor: default;
+}
+
+.card-btn-copy {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: rgb(110, 231, 183);
+}
+
+.card-btn-copy:hover {
+    background: rgba(16, 185, 129, 0.25);
+}
+
 /* Status badge variants */
 .status-badge.status-pending {
     background: rgba(234, 179, 8, 0.15);
