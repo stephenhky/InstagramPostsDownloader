@@ -86,7 +86,10 @@ async def inject_platform(request: Request, call_next):
                     status_code=404,
                     media_type="application/json",
                 )
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 # ── API routes ─────────────────────────────────────────────────────────────────

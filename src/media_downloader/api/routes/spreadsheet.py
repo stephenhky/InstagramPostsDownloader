@@ -387,6 +387,13 @@ async def api_rename_post(request: Request, req: SpreadsheetRenameRequest):
         logger.error(f"Failed to rename S3 files for {url}: {e}")
         raise HTTPException(status_code=500, detail=f"S3 rename failed: {e}")
 
+    meta["suffix"] = suffix
+    if new_keys:
+        new_media_files = [os.path.basename(k) for k in new_keys if not k.endswith("metadata.json")]
+        if new_media_files:
+            meta["media_files"] = new_media_files
+    save_spreadsheet_metadata(meta)
+
     try:
         update_row_fields(url, status="RENAMED", suffix=suffix)
     except Exception as sheet_err:
@@ -458,10 +465,16 @@ async def api_download_post_locally(request: Request, req: SpreadsheetLocalDownl
     except Exception as sheet_err:
         logger.warning(f"Failed to update sheet status for {url}: {sheet_err}")
 
+    suffix = target_row.get("suffix") or (meta.get("suffix") if meta else None)
+    if suffix and meta and meta.get("suffix") != suffix:
+        meta["suffix"] = suffix
+        save_spreadsheet_metadata(meta)
+
     return {
         "success": True,
         "downloaded_files": [os.path.basename(f) for f in downloaded_files],
         "local_dir": local_target_dir,
+        "suffix": suffix,
         "message": f"Downloaded {len(downloaded_files)} files to {local_target_dir}",
     }
 

@@ -158,6 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // Action buttons
             let actionsHtml = "";
             const currentSuffix = post.suffix || meta.suffix || "";
+            card.dataset.suffix = currentSuffix;
 
             // Rename controls for S3 or RENAMED posts
             if (post.status === "S3" || post.status === "RENAMED") {
@@ -189,16 +190,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
             }
 
-            // Open folder button for DOWNLOADED posts
+            // Suffix copy + Open folder button for DOWNLOADED posts
             if (post.status === "DOWNLOADED") {
-                actionsHtml += `
-                    <button type="button" class="card-btn card-btn-folder btn-open-card-folder" data-identifier="${escapeHTML(identifier)}">
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                        <span>Open Folder</span>
-                    </button>
-                `;
+                actionsHtml += buildDownloadedActionsHtml(identifier, currentSuffix);
             }
 
             const folderName = post.identifier || identifier || "";
@@ -246,6 +240,80 @@ document.addEventListener("DOMContentLoaded", () => {
         attachCardEventListeners();
     }
 
+    function buildDownloadedActionsHtml(identifier, suffix) {
+        let html = "";
+        if (suffix) {
+            html += `
+                <div class="card-action-row">
+                    <input type="text" class="rename-suffix-input suffix-readonly" value="${escapeHTML(suffix)}" readonly title="Suffix: ${escapeHTML(suffix)}">
+                    <button type="button" class="card-btn card-btn-copy btn-copy-suffix" data-suffix="${escapeHTML(suffix)}">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copy</span>
+                    </button>
+                </div>
+            `;
+        }
+        html += `
+            <button type="button" class="card-btn card-btn-folder btn-open-card-folder" data-identifier="${escapeHTML(identifier)}">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>Open Folder</span>
+            </button>
+        `;
+        return html;
+    }
+
+    function bindOpenFolderButton(btn) {
+        btn.addEventListener("click", async () => {
+            try {
+                await fetch("/api/spreadsheet/open-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ identifier: btn.dataset.identifier }),
+                });
+            } catch (err) {
+                console.error("Failed to open folder", err);
+            }
+        });
+    }
+
+    function bindCopySuffixButton(btn) {
+        btn.addEventListener("click", async () => {
+            const suffix = btn.dataset.suffix || "";
+            if (!suffix) return;
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(suffix);
+                } else {
+                    const tempInput = document.createElement("textarea");
+                    tempInput.value = suffix;
+                    document.body.appendChild(tempInput);
+                    tempInput.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(tempInput);
+                }
+
+                const btnText = btn.querySelector("span");
+                const originalText = btnText ? btnText.textContent : "Copy";
+                if (btnText) btnText.textContent = "Copied ✓";
+                btn.style.background = "rgba(34, 197, 94, 0.25)";
+                btn.style.color = "rgb(74, 222, 128)";
+                setTimeout(() => {
+                    if (btnText) btnText.textContent = originalText;
+                    btn.style.background = "";
+                    btn.style.color = "";
+                }, 2000);
+            } catch (err) {
+                console.error("Failed to copy suffix", err);
+            }
+        });
+    }
+
     // ── Card Event Listeners ──────────────────────────────────────
     function attachCardEventListeners() {
         // Rename
@@ -276,6 +344,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (res.ok && data.success) {
                         const card = btn.closest(".spreadsheet-post-card");
                         if (card) {
+                            card.dataset.suffix = data.suffix || suffix;
                             // Update status badge
                             const badge = card.querySelector(".status-badge");
                             if (badge) {
@@ -338,33 +407,19 @@ document.addEventListener("DOMContentLoaded", () => {
                                 badge.className = "status-badge status-downloaded";
                                 badge.textContent = "DOWNLOADED";
                             }
-                            // Replace card actions with Open Folder button
+                            // Preserve suffix and replace card actions with Copy + Open Folder buttons
                             const actionsContainer = card.querySelector(".card-actions");
                             const folderBadge = card.querySelector(".card-folder-badge");
                             const identifier = folderBadge ? folderBadge.textContent.trim() : "";
+                            const suffixInput = card.querySelector(".rename-suffix-input");
+                            const currentSuffix = (suffixInput ? suffixInput.value.trim() : "") || data.suffix || card.dataset.suffix || "";
+                            card.dataset.suffix = currentSuffix;
                             if (actionsContainer) {
-                                actionsContainer.innerHTML = `
-                                    <button type="button" class="card-btn card-btn-folder btn-open-card-folder" data-identifier="${escapeHTML(identifier)}">
-                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                                        </svg>
-                                        <span>Open Folder</span>
-                                    </button>
-                                `;
+                                actionsContainer.innerHTML = buildDownloadedActionsHtml(identifier, currentSuffix);
                                 const openBtn = actionsContainer.querySelector(".btn-open-card-folder");
-                                if (openBtn) {
-                                    openBtn.addEventListener("click", async () => {
-                                        try {
-                                            await fetch("/api/spreadsheet/open-folder", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ identifier: openBtn.dataset.identifier }),
-                                            });
-                                        } catch (err) {
-                                            console.error("Failed to open folder", err);
-                                        }
-                                    });
-                                }
+                                if (openBtn) bindOpenFolderButton(openBtn);
+                                const copyBtn = actionsContainer.querySelector(".btn-copy-suffix");
+                                if (copyBtn) bindCopySuffixButton(copyBtn);
                             }
                         }
                     } else {
@@ -382,17 +437,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Open Folder
         document.querySelectorAll(".btn-open-card-folder").forEach(btn => {
-            btn.addEventListener("click", async () => {
-                try {
-                    await fetch("/api/spreadsheet/open-folder", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ identifier: btn.dataset.identifier }),
-                    });
-                } catch (err) {
-                    console.error("Failed to open folder", err);
-                }
-            });
+            bindOpenFolderButton(btn);
+        });
+
+        // Copy Suffix
+        document.querySelectorAll(".btn-copy-suffix").forEach(btn => {
+            bindCopySuffixButton(btn);
         });
     }
 
