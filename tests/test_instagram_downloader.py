@@ -5,7 +5,7 @@ import os
 # Ensure src is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from media_downloader.platforms.instagram import InstagramDownloader
+from media_downloader.platforms.instagram import InstagramDownloader, extract_owner_username
 
 
 class TestInstagramUrlExtraction(unittest.TestCase):
@@ -65,6 +65,37 @@ class TestInstagramUrlExtraction(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.downloader.extract_post_id(url, raise_error=True)
                 self.assertEqual(self.downloader.extract_post_id(url, raise_error=False), "")
+
+
+class TestOwnerUsernameExtraction(unittest.TestCase):
+    """Meta tag shapes observed on real Instagram post pages."""
+
+    def test_og_url(self):
+        meta = {"og:url": "https://www.instagram.com/alvinaaaaa.t/p/DdHLCXzkrzn/"}
+        self.assertEqual(extract_owner_username(meta), "alvinaaaaa.t")
+
+    def test_twitter_title(self):
+        meta = {"twitter:title": "➳ Tiff 🐾 (@tyan_yyy) • Instagram photos and videos"}
+        self.assertEqual(extract_owner_username(meta), "tyan_yyy")
+
+    def test_description_with_at_prefix_and_mention_in_caption(self):
+        meta = {"og:description": "📸 @marco_lam_photography - @tyan_yyy on March 5, 2026"}
+        self.assertEqual(extract_owner_username(meta), "tyan_yyy")
+
+    def test_description_without_likes_prefix(self):
+        meta = {"description": "alvinaaaaa.t on September 10, 2026: \"1 vs 2 😻\". "}
+        self.assertEqual(extract_owner_username(meta), "alvinaaaaa.t")
+
+    def test_description_with_likes_prefix(self):
+        meta = {"og:description": "1,234 likes, 56 comments - some.user_1 on October 5, 2025: \"hi\""}
+        self.assertEqual(extract_owner_username(meta), "some.user_1")
+
+    def test_truncated_caption_only(self):
+        meta = {"og:description": "「🌙みーきゅん日記435日目🌙 今日はお仕事おやすみでした。"}
+        self.assertEqual(extract_owner_username(meta), "")
+
+    def test_nothing(self):
+        self.assertEqual(extract_owner_username({}, "Instagram"), "")
 
 
 if __name__ == "__main__":

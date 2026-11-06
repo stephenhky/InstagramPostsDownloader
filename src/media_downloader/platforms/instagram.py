@@ -16,6 +16,64 @@ from media_downloader.platforms.base import BasePlatformDownloader
 
 logger = logging.getLogger(__name__)
 
+FALLBACK_USERNAME = "instagram_user"
+
+_IG_HANDLE = r"[A-Za-z0-9._]{1,30}"
+# Path segments that can never be an account handle in an Instagram URL.
+_RESERVED_PATH_SEGMENTS = {"p", "reel", "reels", "tv", "explore", "accounts", "stories", "www"}
+
+
+def _valid_handle(candidate) -> bool:
+    return bool(
+        candidate
+        and re.fullmatch(_IG_HANDLE, candidate)
+        and candidate.lower() not in _RESERVED_PATH_SEGMENTS
+        and candidate.lower() != "instagram"
+    )
+
+
+def extract_owner_username(meta_info: dict, page_title: str = "") -> str:
+    """Extract the post owner's handle from the page's meta tags.
+
+    Sources, in order of reliability:
+      1. og:url  -> https://www.instagram.com/<handle>/p/<shortcode>/
+      2. twitter:title -> "Display Name (@<handle>) • Instagram photos and videos"
+      3. og:description / description, which comes in several shapes:
+           "12 likes, 3 comments - <handle> on March 5, 2026: \"caption\""
+           "caption - @<handle> on March 5, 2026"
+           "<handle> on September 10, 2026: \"caption\""
+         (long captions are truncated and contain no handle at all)
+      4. "(@<handle>)" in the document title.
+
+    Returns an empty string if nothing could be found.
+    """
+    meta_info = meta_info or {}
+
+    for key in ("og:url", "al:android:url"):
+        url = meta_info.get(key) or ""
+        m = re.search(rf"instagram\.com/({_IG_HANDLE})/(?:p|reels?|tv)/", url)
+        if m and _valid_handle(m.group(1)):
+            return m.group(1)
+
+    for key in ("twitter:title", "og:title"):
+        m = re.search(rf"\(@({_IG_HANDLE})\)", meta_info.get(key) or "")
+        if m and _valid_handle(m.group(1)):
+            return m.group(1)
+
+    for key in ("og:description", "description"):
+        desc = meta_info.get(key) or ""
+        # Handle sits at the start or right after " - ", optionally prefixed by "@", followed by " on <date>".
+        m = re.search(rf"(?:^|\s-\s+)@?({_IG_HANDLE})\s+on\s+[^:\"]+?\d{{4}}", desc)
+        if m and _valid_handle(m.group(1)):
+            return m.group(1)
+
+    m = re.search(rf"\(@({_IG_HANDLE})\)", page_title or "")
+    if m and _valid_handle(m.group(1)):
+        return m.group(1)
+
+    return ""
+
+
 class InstagramDownloader(BasePlatformDownloader):
     platform_name = "instagram"
     url_pattern = re.compile(
@@ -152,13 +210,18 @@ class InstagramDownloader(BasePlatformDownloader):
 
             return success
 
-    def _get_post_media_filenames_anonymous(self, shortcode: str) -> list:
+    def _get_post_media_filenames_anonymous(self, shortcode: str) -> tuple:
+        """Return (valid_media_digits or None, owner_username or "") via anonymous Instaloader."""
         logger.info("Attempting to fetch post metadata anonymously using Instaloader...")
         try:
             L = instaloader.Instaloader()
             post = instaloader.Post.from_shortcode(L.context, shortcode)
             
             valid_digits = []
+            try:
+                owner = post.owner_username or ""
+            except Exception:
+                owner = ""
             
             if post.typename == 'GraphSidecar':
                 for node in post.get_sidecar_nodes():
@@ -180,11 +243,11 @@ class InstagramDownloader(BasePlatformDownloader):
                     if digits and digits not in valid_digits:
                         valid_digits.append(digits)
                         
-            logger.info(f"Instaloader anonymous check succeeded. Valid media base digits: {valid_digits}")
-            return valid_digits
+            logger.info(f"Instaloader anonymous check succeeded. Valid media base digits: {valid_digits}, owner: {owner!r}")
+            return valid_digits, owner
         except Exception as e:
             logger.warning(f"Instaloader anonymous metadata fetch failed: {e}. Scraper will proceed without filename filtering.")
-            return None
+            return None, ""
 
     async def download_post(self, post_url: str, suffix: str = None) -> dict:
         if not self.is_authenticated():
@@ -194,7 +257,7 @@ class InstagramDownloader(BasePlatformDownloader):
         shortcode = self.extract_post_id(post_url)
         logger.info(f"Downloading Instagram post {shortcode} from {post_url}...")
 
-        valid_digits = self._get_post_media_filenames_anonymous(shortcode)
+        valid_digits, anon_owner = self._get_post_media_filenames_anonymous(shortcode)
         logger.debug(f"Valid media digits for {shortcode}: {valid_digits}")
         intercepted_videos = []
         
@@ -283,31 +346,35 @@ class InstagramDownloader(BasePlatformDownloader):
             og_title = meta_info.get("og:title") or ""
             page_title = await page.title()
 
-            owner_username = "instagram_user"
             caption = ""
 
-            # 1. Try regex from og_desc: '... - username on date: "caption"'
-            m = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on\s+[^:]+:\s*\"(.*?)\"', og_desc, re.DOTALL)
+            # Owner handle from meta tags (og:url is the most reliable source).
+            owner_username = extract_owner_username(meta_info, page_title)
+
+            # Caption from og_desc: '... <handle> on <date>: "caption"'
+            m = re.search(r'@?[A-Za-z0-9._]+\s+on\s+[^:]+:\s*\"(.*?)\"', og_desc, re.DOTALL)
             if m:
-                owner_username = m.group(1)
-                caption = m.group(2)
-            else:
-                m_user = re.search(r'-\s+([a-zA-Z0-9._]+)\s+on', og_desc)
-                if m_user:
-                    owner_username = m_user.group(1)
+                caption = m.group(1)
 
-            if owner_username == "instagram_user":
-                m_title = re.search(r'@([a-zA-Z0-9._]+)', page_title)
-                if m_title:
-                    owner_username = m_title.group(1)
+            if not owner_username and anon_owner and _valid_handle(anon_owner):
+                owner_username = anon_owner
 
-            if owner_username == "instagram_user":
+            if not owner_username:
                 try:
                     username_loc = main_article.locator("header a[href^='/']").first
                     if await username_loc.is_visible():
-                        owner_username = (await username_loc.text_content()).strip()
+                        href = (await username_loc.get_attribute("href") or "").strip("/")
+                        text = (await username_loc.text_content() or "").strip()
+                        for cand in (href, text):
+                            if _valid_handle(cand):
+                                owner_username = cand
+                                break
                 except Exception as e:
                     logger.warning(f"Could not find username link: {e}")
+
+            if not owner_username:
+                logger.warning(f"Could not determine owner username for {shortcode}; falling back to '{FALLBACK_USERNAME}'.")
+                owner_username = FALLBACK_USERNAME
 
             if not caption:
                 m_cap = re.search(r':\s*\"(.*?)\"', og_title, re.DOTALL)
@@ -323,7 +390,7 @@ class InstagramDownloader(BasePlatformDownloader):
 
             profile_bio = ""
             profile_usernames = [owner_username]
-            if owner_username and owner_username != "instagram_user":
+            if owner_username and owner_username != FALLBACK_USERNAME:
                 try:
                     profile_page = await context.new_page()
                     await profile_page.goto(f"https://www.instagram.com/{owner_username}/", wait_until="load", timeout=15000)
