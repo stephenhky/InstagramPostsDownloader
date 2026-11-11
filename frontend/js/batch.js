@@ -253,15 +253,18 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
         
-        // Share link resolution (Threads only)
+        // Share / reel link resolution
         const urlInput = row.querySelector(".row-url-input");
         urlInput.addEventListener("blur", async () => {
-            if (currentPlatform !== "threads") return;
             const url = urlInput.value.trim();
-            if (!url || !url.includes("/share/")) return;
+            if (!url) return;
+            const needsResolve = currentPlatform === "threads"
+                ? url.includes("/share/")
+                : (/\/(reels?|tv|share)\//.test(url) || url.includes("?"));
+            if (!needsResolve) return;
             
             const orig = urlInput.placeholder;
-            urlInput.placeholder = "Resolving share link...";
+            urlInput.placeholder = "Resolving link...";
             urlInput.disabled = true;
             try {
                 const res = await fetch(`/api/${currentPlatform}/resolve-url`, {

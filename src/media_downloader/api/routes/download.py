@@ -8,12 +8,12 @@ router = APIRouter()
 
 @router.post("/resolve-url")
 async def api_resolve_url(request: Request, req: ResolveUrlRequest):
-    """Resolves a share/redirect URL to its canonical form (Threads only)."""
+    """Resolves a share/redirect/reel URL to its canonical form."""
     downloader = request.app.state.platform_downloaders[request.state.platform]
     url = req.url.strip()
 
     if hasattr(downloader, "resolve_share_url"):
-        if "/share/" not in url:
+        if request.state.platform == "threads" and "/share/" not in url:
             return {"success": True, "resolved_url": url}
         try:
             resolved = downloader.resolve_share_url(url)
