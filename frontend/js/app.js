@@ -106,15 +106,17 @@ document.addEventListener("DOMContentLoaded", () => {
         loadHistory();
     }
 
-    // ── Resolve share URLs on blur (Threads) ────────────────────
+    // ── Resolve share / reel URLs on blur ───────────────────────
     postUrlInput.addEventListener("blur", async () => {
-        if (currentPlatform !== "threads") return;
-        
         const url = postUrlInput.value.trim();
-        if (!url || !url.includes("/share/")) return;
+        if (!url) return;
+        const needsResolve = currentPlatform === "threads"
+            ? url.includes("/share/")
+            : (/\/(reels?|tv|share)\//.test(url) || url.includes("?"));
+        if (!needsResolve) return;
 
         const originalPlaceholder = postUrlInput.placeholder;
-        postUrlInput.placeholder = "Resolving share link...";
+        postUrlInput.placeholder = "Resolving link...";
         postUrlInput.disabled = true;
 
         try {

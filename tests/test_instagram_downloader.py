@@ -66,6 +66,22 @@ class TestInstagramUrlExtraction(unittest.TestCase):
                     self.downloader.extract_post_id(url, raise_error=True)
                 self.assertEqual(self.downloader.extract_post_id(url, raise_error=False), "")
 
+    def test_get_canonical_url_and_resolve_share_url(self):
+        test_cases = [
+            ("https://www.instagram.com/reel/DfkzEELTRYY", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/reel/DfkzEELTRYY/", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/reel/DfkzEELTRYY?igsh=MTc4MmM1YmI2Ng==", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/reels/DfkzEELTRYY/", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/momose_erena/reel/DfkzEELTRYY/", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/p/DfkzEELTRYY", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/p/DfkzEELTRYY/", "https://www.instagram.com/p/DfkzEELTRYY/"),
+            ("https://www.instagram.com/tv/DfkzEELTRYY/", "https://www.instagram.com/p/DfkzEELTRYY/"),
+        ]
+        for url, expected_canonical in test_cases:
+            with self.subTest(url=url):
+                self.assertEqual(self.downloader.get_canonical_url(url), expected_canonical)
+                self.assertEqual(self.downloader.resolve_share_url(url), expected_canonical)
+
 
 class TestOwnerUsernameExtraction(unittest.TestCase):
     """Meta tag shapes observed on real Instagram post pages."""

@@ -69,6 +69,15 @@ def _find_metadata_for_row(nrow: dict, metadata_list: list) -> Optional[dict]:
         m = re.search(r"/(?:p|reels?|tv)/([^/?#&]+)", link) or (re.search(r"/(?:p|reels?|tv)/([^/?#&]+)", rect_link) if rect_link else None)
         if m:
             post_id = m.group(1)
+        elif "/share/" in link or (rect_link and "/share/" in rect_link):
+            try:
+                target = rect_link if (rect_link and "/share/" in rect_link) else link
+                resolved = InstagramDownloader().resolve_share_url(target)
+                m2 = re.search(r"/(?:p|reels?|tv)/([^/?#&]+)", resolved)
+                if m2:
+                    post_id = m2.group(1)
+            except Exception:
+                pass
     elif platform == "threads":
         m = re.search(r"/post/([^/?#&]+)", link) or (re.search(r"/post/([^/?#&]+)", rect_link) if rect_link else None)
         if m:
@@ -206,16 +215,17 @@ async def api_sync_spreadsheet(request: Request):
             continue
 
         try:
-            # Resolve share URL for threads if needed
+            # Resolve share / reel URL to canonical permalink if supported
             target_download_url = rectified_link
-            if platform == "threads" and hasattr(downloader, "resolve_share_url"):
+            if hasattr(downloader, "resolve_share_url"):
                 resolved = downloader.resolve_share_url(target_download_url)
                 if resolved != target_download_url:
                     target_download_url = resolved
 
             metadata = await downloader.download_post(post_url=target_download_url, suffix=None)
+            final_rectified_link = metadata.get("rectified_link") or target_download_url
             metadata["original_link"] = url
-            metadata["rectified_link"] = target_download_url
+            metadata["rectified_link"] = final_rectified_link
 
             identifier = metadata.get("shortcode") or metadata.get("post_id", "unknown")
             s3_prefix = _build_s3_prefix(platform, identifier)
@@ -234,7 +244,7 @@ async def api_sync_spreadsheet(request: Request):
                     url,
                     status="S3",
                     username=metadata.get("owner_username"),
-                    rectified_link=target_download_url,
+                    rectified_link=final_rectified_link,
                 )
             except Exception as sheet_err:
                 logger.warning(f"Failed to update sheet fields for {url}: {sheet_err}")
@@ -308,7 +318,16 @@ async def api_download_pending(request: Request):
             continue
 
         try:
-            metadata = await downloader.download_post(post_url=rectified_link, suffix=None)
+            target_download_url = rectified_link
+            if hasattr(downloader, "resolve_share_url"):
+                resolved = downloader.resolve_share_url(target_download_url)
+                if resolved != target_download_url:
+                    target_download_url = resolved
+
+            metadata = await downloader.download_post(post_url=target_download_url, suffix=None)
+            final_rectified_link = metadata.get("rectified_link") or target_download_url
+            metadata["original_link"] = url
+            metadata["rectified_link"] = final_rectified_link
             identifier = metadata.get("shortcode") or metadata.get("post_id", "unknown")
             s3_prefix = _build_s3_prefix(platform, identifier)
             download_dir = downloader.get_downloads_dir()
@@ -322,7 +341,12 @@ async def api_download_pending(request: Request):
             save_spreadsheet_metadata(metadata)
 
             try:
-                update_row_status(url, "S3")
+                update_row_fields(
+                    url,
+                    status="S3",
+                    username=metadata.get("owner_username"),
+                    rectified_link=final_rectified_link,
+                )
             except Exception as sheet_err:
                 logger.warning(f"Failed to update sheet status for {url}: {sheet_err}")
 

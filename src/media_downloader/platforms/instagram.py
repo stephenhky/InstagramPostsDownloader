@@ -6,6 +6,7 @@ import asyncio
 import time
 from datetime import datetime
 import instaloader
+import requests
 import urllib.parse
 from playwright.async_api import async_playwright
 
@@ -94,6 +95,47 @@ class InstagramDownloader(BasePlatformDownloader):
                 raise ValueError("Invalid Instagram URL pattern. Must be a /p/, /reel/, /reels/, or /tv/ URL.")
             return ""
         return match.group(1)
+
+    def get_canonical_url(self, url: str, raise_error: bool = True) -> str:
+        """Convert any valid Instagram /p/, /reel/, /reels/, or /tv/ URL to its /p/<shortcode>/ permalink."""
+        shortcode = self.extract_post_id(url, raise_error=raise_error)
+        if not shortcode:
+            return ""
+        return f"https://www.instagram.com/p/{shortcode}/"
+
+    def resolve_share_url(self, url: str) -> str:
+        """Resolve an Instagram share or reel URL to its canonical /p/<shortcode>/ permalink."""
+        clean_url = (url or "").strip()
+        if not clean_url:
+            return url
+
+        if "/share/" in clean_url:
+            target_url = clean_url if clean_url.startswith("http") else "https://" + clean_url.lstrip("/")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            try:
+                session = requests.Session()
+                res = session.get(target_url, headers=headers, allow_redirects=True, timeout=10)
+                for r in res.history + [res]:
+                    for candidate in (r.headers.get("Location", ""), r.url):
+                        if candidate and "/share/" not in candidate:
+                            canonical = self.get_canonical_url(candidate, raise_error=False)
+                            if canonical:
+                                logger.info(f"Resolved Instagram share URL: {url} -> {canonical}")
+                                return canonical
+            except Exception as e:
+                logger.warning(f"Could not resolve Instagram share URL '{url}': {e}")
+            return url
+
+        canonical = self.get_canonical_url(clean_url, raise_error=False)
+        if canonical:
+            if canonical != clean_url:
+                logger.info(f"Canonicalized Instagram URL: {url} -> {canonical}")
+            return canonical
+        return url
 
     def __init__(self):
         self._login_lock = asyncio.Lock()
@@ -253,9 +295,11 @@ class InstagramDownloader(BasePlatformDownloader):
         if not self.is_authenticated():
             logger.error("Instagram account not connected. Please log in first.")
             raise RuntimeError("Instagram account not connected. Please log in first.")
-            
-        shortcode = self.extract_post_id(post_url)
-        logger.info(f"Downloading Instagram post {shortcode} from {post_url}...")
+
+        resolved_input_url = self.resolve_share_url(post_url) if "/share/" in post_url else post_url
+        shortcode = self.extract_post_id(resolved_input_url)
+        canonical_url = f"https://www.instagram.com/p/{shortcode}/"
+        logger.info(f"Downloading Instagram post {shortcode} from {canonical_url} (original: {post_url})...")
 
         valid_digits, anon_owner = self._get_post_media_filenames_anonymous(shortcode)
         logger.debug(f"Valid media digits for {shortcode}: {valid_digits}")
@@ -280,8 +324,8 @@ class InstagramDownloader(BasePlatformDownloader):
                     
             page.on("response", handle_response)
             
-            logger.info(f"Navigating to Instagram post: {post_url}")
-            await page.goto(post_url, wait_until="load")
+            logger.info(f"Navigating to Instagram post: {canonical_url}")
+            await page.goto(canonical_url, wait_until="load")
             logger.info(f"Page loaded. Current URL: {page.url}")
             
             try:
@@ -522,7 +566,9 @@ class InstagramDownloader(BasePlatformDownloader):
 
             post_metadata = {
                 "shortcode": shortcode,
-                "url": f"https://www.instagram.com/p/{shortcode}/",
+                "url": canonical_url,
+                "original_link": post_url,
+                "rectified_link": canonical_url,
                 "owner_username": owner_username,
                 "owner_id": 0,
                 "caption": caption,
