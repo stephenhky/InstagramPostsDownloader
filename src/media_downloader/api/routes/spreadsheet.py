@@ -150,7 +150,7 @@ def _build_post_item(row: dict, metadata_list: list) -> dict:
     # Username: use sheet username, or fallback to meta owner_username
     username = nrow.get("username", "").strip()
     if not username and meta:
-        username = meta.get("owner_username", "").strip()
+        username = (meta.get("owner_username") or "").strip()
     if not username and platform == "instagram":
         username = "instagram_user"
 

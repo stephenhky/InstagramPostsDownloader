@@ -126,7 +126,9 @@ def read_sheet_data() -> List[Dict[str, Any]]:
     """Read all data from the first worksheet of the spreadsheet."""
     spreadsheet = get_spreadsheet()
     worksheet = spreadsheet.get_worksheet(0)
-    records = worksheet.get_all_records()
+    # Keep every cell as raw text: by default gspread converts numeric-looking
+    # values (e.g. a username like "724.32") to int/float, which breaks string ops.
+    records = worksheet.get_all_records(numericise_ignore=["all"])
     logger.info(f"Read {len(records)} rows from Google Sheet.")
     return records
 
@@ -258,10 +260,19 @@ _COLUMN_MAP = {
 
 
 def normalize_row_keys(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize a spreadsheet row's keys to canonical lowercase names."""
+    """Normalize a spreadsheet row's keys to canonical lowercase names.
+
+    Values are coerced to strings (None -> "") so callers can safely use
+    string methods regardless of how the cell was typed in the sheet.
+    """
     normalized = {}
     for key, value in row.items():
-        canonical = _COLUMN_MAP.get(key.strip().lower(), key.strip().lower())
+        key_str = str(key).strip().lower()
+        canonical = _COLUMN_MAP.get(key_str, key_str)
+        if value is None:
+            value = ""
+        elif not isinstance(value, str):
+            value = str(value)
         normalized[canonical] = value
     return normalized
 
